@@ -1,0 +1,28 @@
+{
+  "enabled": true,
+  "model": "gpt-5.6-sol",
+  "reasoning": {
+    "effort": "medium"
+  },
+  "messages_db": "~/Library/Messages/chat.db",
+  "poll_seconds": 5,
+  "max_response_chars": 1200,
+  "max_context_messages": 20,
+  "max_triggers_per_conversation_per_minute": 3,
+  "global_daily_api_call_limit": 100,
+  "state_retention_days": 7,
+  "retry": {
+    "initial_seconds": 15,
+    "maximum_seconds": 900,
+    "send_reconcile_seconds": 45
+  },
+  "allowlist": {
+    "enabled": false,
+    "conversation_guids": [],
+    "participants": []
+  },
+  "web_search": {
+    "enabled": true,
+    "search_context_size": "low"
+  }
+}

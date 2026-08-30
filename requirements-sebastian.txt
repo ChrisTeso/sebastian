@@ -1,0 +1,2 @@
+openai>=2.33.0,<3
+pytypedstream==0.1.0

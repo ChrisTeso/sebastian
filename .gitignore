@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.pyc
+.env.local
+.env.*.local
+config.local.json
+data/*.jsonl
+data/*.json
+data/*.sqlite
+data/*.sqlite-*
+data/*.txt
+logs/
+.DS_Store
+.pytest_cache/
+build/
+dist/
+*.egg-info/
