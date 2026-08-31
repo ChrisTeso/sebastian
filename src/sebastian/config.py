@@ -21,6 +21,13 @@ DEFAULTS: dict[str, Any] = {
     "state_retention_days": 7,
     "retry": {"initial_seconds": 15, "maximum_seconds": 900, "send_reconcile_seconds": 45},
     "allowlist": {"enabled": False, "conversation_guids": [], "participants": []},
+    "images": {
+        "enabled": True,
+        "max_images": 4,
+        "max_image_bytes": 10_485_760,
+        "max_total_bytes": 20_971_520,
+        "detail": "auto",
+    },
     "web_search": {"enabled": True, "search_context_size": "low"},
 }
 
@@ -82,6 +89,20 @@ def validate_config(config: dict[str, Any]) -> None:
             isinstance(item, str) and item for item in allowlist[key]
         ):
             raise ValueError(f"allowlist.{key} must be a list of non-empty strings.")
+    images = config.get("images", {})
+    if not isinstance(images.get("enabled"), bool):
+        raise ValueError("images.enabled must be true or false.")
+    image_bounds = {
+        "max_images": (0, 8),
+        "max_image_bytes": (1_024, 20_971_520),
+        "max_total_bytes": (1_024, 52_428_800),
+    }
+    for key, (minimum, maximum) in image_bounds.items():
+        value = images.get(key)
+        if not isinstance(value, int) or not minimum <= value <= maximum:
+            raise ValueError(f"Invalid images.{key}: expected {minimum}..{maximum}.")
+    if images.get("detail") not in {"low", "high", "auto"}:
+        raise ValueError("images.detail must be low, high, or auto.")
 
 
 def write_config(config: dict[str, Any], path: Path | None = None) -> None:

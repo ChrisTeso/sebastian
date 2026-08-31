@@ -8,7 +8,15 @@ from typing import Any, Iterable
 
 APPLE_EPOCH = dt.datetime(2001, 1, 1, tzinfo=dt.UTC)
 OBJECT_REPLACEMENT_CHAR = "\ufffc"
-REQUIRED_TABLES = {"message", "chat", "handle", "chat_message_join", "chat_handle_join"}
+REQUIRED_TABLES = {
+    "message",
+    "chat",
+    "handle",
+    "chat_message_join",
+    "chat_handle_join",
+    "attachment",
+    "message_attachment_join",
+}
 REQUIRED_MESSAGE_COLUMNS = {
     "ROWID",
     "guid",
@@ -20,6 +28,31 @@ REQUIRED_MESSAGE_COLUMNS = {
     "associated_message_type",
     "is_sent",
     "error",
+}
+REQUIRED_ATTACHMENT_COLUMNS = {
+    "ROWID",
+    "filename",
+    "mime_type",
+    "uti",
+    "total_bytes",
+    "is_sticker",
+    "hide_attachment",
+    "is_commsafety_sensitive",
+}
+SUPPORTED_IMAGE_MIME_TYPES = {
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/heic",
+    "image/heif",
+}
+IMAGE_SUFFIX_MIME_TYPES = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".heic": "image/heic",
+    ".heif": "image/heif",
 }
 
 
@@ -45,6 +78,14 @@ class Message:
     @property
     def timestamp(self) -> str:
         return mac_time_to_datetime(self.date).isoformat().replace("+00:00", "Z")
+
+
+@dataclass(frozen=True)
+class ImageAttachment:
+    message_rowid: int
+    path: Path
+    mime_type: str
+    byte_size: int
 
 
 def connect_readonly(path: Path) -> sqlite3.Connection:
@@ -75,6 +116,15 @@ def validate_schema(conn: sqlite3.Connection) -> None:
     if missing_columns:
         raise RuntimeError(
             f"Unsupported Messages database schema; missing {len(missing_columns)} required message columns."
+        )
+    attachment_columns = {
+        str(row[1]) for row in conn.execute("PRAGMA table_info(attachment)").fetchall()
+    }
+    missing_attachment_columns = REQUIRED_ATTACHMENT_COLUMNS - attachment_columns
+    if missing_attachment_columns:
+        raise RuntimeError(
+            "Unsupported Messages attachment schema; "
+            f"missing {len(missing_attachment_columns)} required attachment columns."
         )
 
 
@@ -234,6 +284,91 @@ def previous_messages(
     ).fetchall()
     messages = _rows_to_messages(rows)
     return messages[-limit:]
+
+
+def image_attachments(
+    conn: sqlite3.Connection,
+    *,
+    chat_id: int,
+    message_rowids: Iterable[int],
+    max_images: int,
+    max_image_bytes: int,
+    max_total_bytes: int,
+    attachments_root: Path | None = None,
+) -> list[ImageAttachment]:
+    rowids = sorted({int(rowid) for rowid in message_rowids})
+    if not rowids or max_images <= 0:
+        return []
+    root = (
+        attachments_root or Path.home() / "Library" / "Messages" / "Attachments"
+    ).expanduser()
+    try:
+        resolved_root = root.resolve(strict=True)
+    except OSError:
+        return []
+    placeholders = ",".join("?" for _ in rowids)
+    rows = conn.execute(
+        f"""
+        SELECT a.ROWID, maj.message_id, a.filename, LOWER(COALESCE(a.mime_type, ''))
+        FROM attachment a
+        JOIN message_attachment_join maj ON maj.attachment_id = a.ROWID
+        JOIN chat_message_join cmj ON cmj.message_id = maj.message_id
+        WHERE cmj.chat_id = ? AND maj.message_id IN ({placeholders})
+          AND COALESCE(a.is_sticker, 0) = 0
+          AND COALESCE(a.hide_attachment, 0) = 0
+          AND COALESCE(a.is_commsafety_sensitive, 0) = 0
+        ORDER BY maj.message_id DESC, a.ROWID DESC
+        """,
+        (chat_id, *rowids),
+    ).fetchall()
+    selected: list[tuple[int, ImageAttachment]] = []
+    total_bytes = 0
+    seen_paths: set[Path] = set()
+    for attachment_id, message_rowid, filename, declared_mime in rows:
+        if not filename:
+            continue
+        try:
+            path = Path(str(filename)).expanduser().resolve(strict=True)
+        except OSError:
+            continue
+        if not path.is_relative_to(resolved_root) or not path.is_file() or path in seen_paths:
+            continue
+        mime_type = str(declared_mime or "")
+        if mime_type == "image/jpg":
+            mime_type = "image/jpeg"
+        if mime_type not in SUPPORTED_IMAGE_MIME_TYPES:
+            mime_type = IMAGE_SUFFIX_MIME_TYPES.get(path.suffix.lower(), "")
+        if mime_type not in SUPPORTED_IMAGE_MIME_TYPES:
+            continue
+        try:
+            byte_size = path.stat().st_size
+        except OSError:
+            continue
+        if byte_size <= 0 or byte_size > max_image_bytes:
+            continue
+        if total_bytes + byte_size > max_total_bytes:
+            continue
+        selected.append(
+            (
+                int(attachment_id),
+                ImageAttachment(
+                    message_rowid=int(message_rowid),
+                    path=path,
+                    mime_type=mime_type,
+                    byte_size=int(byte_size),
+                ),
+            )
+        )
+        seen_paths.add(path)
+        total_bytes += byte_size
+        if len(selected) >= max_images:
+            break
+    return [
+        attachment
+        for _, attachment in sorted(
+            selected, key=lambda item: (item[1].message_rowid, item[0])
+        )
+    ]
 
 
 def participants(conn: sqlite3.Connection, chat_id: int) -> list[str]:

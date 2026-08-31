@@ -16,10 +16,12 @@ The current implementation targets macOS 26 on Apple Silicon:
   `PRAGMA query_only=ON`. It polls by increasing Messages row ID and reads the
   live WAL normally; it never writes to the Messages database.
 - Decode: Python plus `pytypedstream` handles `attributedBody`, where modern
-  Messages stores most text on this Mac.
+  Messages stores most text on this Mac. Same-conversation JPEG, PNG, WebP, and
+  HEIC image attachments can be included for visual interpretation; HEIC is
+  converted to JPEG in a private temporary directory and immediately removed.
 - Generate: the OpenAI Responses API, `store=false`, and only the hosted
-  `web_search` tool. No message request can invoke local tools or external
-  actions.
+  `web_search` tool. Image inputs use bounded in-memory data URLs. No message
+  request can invoke local tools or external actions.
 - Send: Messages' native AppleScript `send ... to chat id`, which preserves the
   originating direct or group conversation.
 - Run: `~/Applications/Sebastian.app` is the stable permission identity, started
@@ -102,6 +104,8 @@ copy is `~/Library/Application Support/Sebastian/config.json` and supports:
 - the OpenAI model and reasoning effort (`gpt-5.6-sol` with `medium` reasoning by default);
 - maximum response characters (including the signature);
 - maximum same-conversation context, capped at 20 messages;
+- image interpretation on/off, capped at four images, 10 MB per image, and
+  20 MB total by default;
 - triggers per conversation per minute;
 - global daily API calls;
 - metadata-state retention (seven days by default; counters are pruned sooner);
@@ -128,6 +132,10 @@ Restart Sebastian after changing configuration.
 - **No reply:** confirm the message contains the explicit tag, is
   not over either rate limit, and is allowed when the allowlist is enabled. Use
   `sebastian status` and metadata-only `sebastian logs`.
+- **Image unavailable:** Sebastian supports downloaded JPEG, PNG, WebP, and
+  HEIC images from the trigger or recent same-conversation context. It skips
+  videos, stickers, macOS sensitive-content flags, missing iCloud files,
+  unsupported formats, and files over the configured limits.
 
 ### Uninstall
 

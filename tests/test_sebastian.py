@@ -17,10 +17,12 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from sebastian.constants import SIGNATURE  # noqa: E402
 import sebastian.cli as cli_module  # noqa: E402
-from sebastian.generator import generate_response  # noqa: E402
+from sebastian.generator import connectivity_test, generate_response, prepare_images  # noqa: E402
 from sebastian.keychain import KeychainError, get_api_key  # noqa: E402
 from sebastian.messages import (  # noqa: E402
+    ImageAttachment,
     connect_readonly,
+    image_attachments,
     matching_outgoing_rowid,
     message_text_hash,
     messages_after,
@@ -56,6 +58,13 @@ def build_messages_db(path: Path) -> None:
         CREATE TABLE handle (ROWID INTEGER PRIMARY KEY, id TEXT);
         CREATE TABLE chat_message_join (chat_id INTEGER, message_id INTEGER);
         CREATE TABLE chat_handle_join (chat_id INTEGER, handle_id INTEGER);
+        CREATE TABLE attachment (
+            ROWID INTEGER PRIMARY KEY, filename TEXT, mime_type TEXT, uti TEXT,
+            total_bytes INTEGER DEFAULT 0, is_sticker INTEGER DEFAULT 0,
+            hide_attachment INTEGER DEFAULT 0,
+            is_commsafety_sensitive INTEGER DEFAULT 0
+        );
+        CREATE TABLE message_attachment_join (message_id INTEGER, attachment_id INTEGER);
         INSERT INTO chat VALUES (1, 'chat-one'), (2, 'chat-two');
         INSERT INTO handle VALUES (1, 'person-one'), (2, 'person-two');
         INSERT INTO chat_handle_join VALUES (1, 1), (2, 2);
@@ -189,6 +198,46 @@ class MessagesIsolationTest(unittest.TestCase):
         with connect_readonly(self.path) as conn:
             self.assertEqual(participants(conn, 1), ["person-one"])
             self.assertEqual(participants(conn, 2), ["person-two"])
+
+    def test_image_attachments_are_same_chat_bounded_and_path_restricted(self) -> None:
+        root = Path(self.temp.name) / "Attachments"
+        root.mkdir()
+        same_chat = root / "same.png"
+        other_chat = root / "other.png"
+        unsupported = root / "notes.txt"
+        same_chat.write_bytes(b"\x89PNG\r\n\x1a\n" + b"a" * 16)
+        other_chat.write_bytes(b"\x89PNG\r\n\x1a\n" + b"b" * 16)
+        unsupported.write_text("not an image", encoding="utf-8")
+        outside = Path(self.temp.name) / "outside.jpg"
+        outside.write_bytes(b"\xff\xd8\xff" + b"c" * 16)
+        conn = sqlite3.connect(self.path)
+        conn.executemany(
+            "INSERT INTO attachment(ROWID,filename,mime_type,total_bytes) VALUES (?,?,?,?)",
+            [
+                (1, str(same_chat), "image/png", same_chat.stat().st_size),
+                (2, str(other_chat), "image/png", other_chat.stat().st_size),
+                (3, str(unsupported), "text/plain", unsupported.stat().st_size),
+                (4, str(outside), "image/jpeg", outside.stat().st_size),
+            ],
+        )
+        conn.executemany(
+            "INSERT INTO message_attachment_join VALUES (?,?)",
+            [(1, 1), (2, 2), (1, 3), (1, 4)],
+        )
+        conn.commit()
+        conn.close()
+        with connect_readonly(self.path) as readonly:
+            images = image_attachments(
+                readonly,
+                chat_id=1,
+                message_rowids=[1, 2],
+                max_images=4,
+                max_image_bytes=1_024,
+                max_total_bytes=2_048,
+                attachments_root=root,
+            )
+        self.assertEqual([image.message_rowid for image in images], [1])
+        self.assertEqual(images[0].path, same_chat.resolve())
 
     def test_reconciliation_matches_only_same_chat_outgoing_hash(self) -> None:
         response = f"answer\n\n{SIGNATURE}"
@@ -332,6 +381,28 @@ class SenderPrivacyTest(unittest.TestCase):
 
 
 class GeneratorBoundaryTest(unittest.TestCase):
+    def test_connectivity_probe_exercises_image_input(self) -> None:
+        captured: dict[str, object] = {}
+
+        class FakeResponses:
+            def create(self, **kwargs: object) -> object:
+                captured.update(kwargs)
+                return types.SimpleNamespace(output_text="OK")
+
+        class FakeClient:
+            def __init__(self, **_kwargs: object) -> None:
+                self.responses = FakeResponses()
+
+        with (
+            patch("openai.OpenAI", FakeClient),
+            patch("sebastian.generator.get_api_key", return_value="test-key-not-real"),
+        ):
+            self.assertTrue(connectivity_test({"model": "test-model"}))
+        content = captured["input"][0]["content"]  # type: ignore[index]
+        image_parts = [part for part in content if part["type"] == "input_image"]
+        self.assertEqual(len(image_parts), 1)
+        self.assertTrue(image_parts[0]["image_url"].startswith("data:image/png;base64,"))
+
     def test_responses_api_is_stateless_and_exposes_only_web_search(self) -> None:
         captured: dict[str, object] = {}
 
@@ -352,6 +423,7 @@ class GeneratorBoundaryTest(unittest.TestCase):
                 self.responses = FakeResponses()
 
         trigger = types.SimpleNamespace(
+            rowid=2,
             sender="recipient-handle",
             has_attachments=False,
             is_from_me=True,
@@ -360,6 +432,7 @@ class GeneratorBoundaryTest(unittest.TestCase):
         )
         history = [
             types.SimpleNamespace(
+                rowid=1,
                 sender="sender-one",
                 has_attachments=False,
                 is_from_me=False,
@@ -393,6 +466,103 @@ class GeneratorBoundaryTest(unittest.TestCase):
         request_payload = {key: value for key, value in captured.items() if key != "client_kwargs"}
         self.assertNotIn("test-key-not-real", str(request_payload))
 
+    def test_supported_image_is_sent_as_untrusted_multimodal_input(self) -> None:
+        captured: dict[str, object] = {}
+
+        class FakeResponses:
+            def create(self, **kwargs: object) -> object:
+                captured.update(kwargs)
+                return types.SimpleNamespace(output_text="I see it.", output=[])
+
+        class FakeClient:
+            def __init__(self, **_kwargs: object) -> None:
+                self.responses = FakeResponses()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "private.png"
+            path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"image-bytes")
+            trigger = types.SimpleNamespace(
+                rowid=2,
+                sender="person-one",
+                has_attachments=False,
+                is_from_me=False,
+                timestamp="2026-08-29T00:01:00Z",
+                text="@sebastian what is that?",
+            )
+            history = [
+                types.SimpleNamespace(
+                    rowid=1,
+                    sender="person-one",
+                    has_attachments=True,
+                    is_from_me=False,
+                    timestamp="2026-08-29T00:00:00Z",
+                    text="[attachment]",
+                )
+            ]
+            with (
+                patch("openai.OpenAI", FakeClient),
+                patch("sebastian.generator.get_api_key", return_value="test-key-not-real"),
+            ):
+                generate_response(
+                    config={
+                        "model": "test-model",
+                        "images": {
+                            "max_image_bytes": 1_024,
+                            "max_total_bytes": 2_048,
+                            "detail": "auto",
+                        },
+                        "web_search": {"enabled": False},
+                    },
+                    request="what is that?",
+                    trigger=trigger,
+                    history=history,
+                    participants=["person-one"],
+                    images=[
+                        ImageAttachment(
+                            message_rowid=1,
+                            path=path,
+                            mime_type="image/png",
+                            byte_size=path.stat().st_size,
+                        )
+                    ],
+                )
+        content = captured["input"][0]["content"]  # type: ignore[index]
+        image_parts = [part for part in content if part["type"] == "input_image"]
+        self.assertEqual(len(image_parts), 1)
+        self.assertTrue(image_parts[0]["image_url"].startswith("data:image/png;base64,"))
+        self.assertEqual(image_parts[0]["detail"], "auto")
+        self.assertIn("image provided below", str(content))
+        self.assertIn("untrusted conversation data", str(content))
+        self.assertNotIn(str(path), str(captured))
+
+    def test_heic_is_converted_to_jpeg_in_a_private_temporary_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "photo.heic"
+            path.write_bytes(b"synthetic-heic")
+
+            def fake_sips(args: list[str], **_kwargs: object) -> object:
+                output = Path(args[args.index("--out") + 1])
+                output.write_bytes(b"\xff\xd8\xff" + b"converted-jpeg")
+                return types.SimpleNamespace(returncode=0)
+
+            with patch("sebastian.generator.subprocess.run", side_effect=fake_sips) as run:
+                prepared = prepare_images(
+                    [
+                        ImageAttachment(
+                            message_rowid=1,
+                            path=path,
+                            mime_type="image/heic",
+                            byte_size=path.stat().st_size,
+                        )
+                    ],
+                    max_images=4,
+                    max_image_bytes=1_024,
+                    max_total_bytes=2_048,
+                )
+        self.assertEqual(len(prepared), 1)
+        self.assertTrue(prepared[0].data_url.startswith("data:image/jpeg;base64,"))
+        self.assertEqual(run.call_args.args[0][0], "/usr/bin/sips")
+
 
 class ServicePrivacyTest(unittest.TestCase):
     def service_config(self, db_path: Path) -> dict:
@@ -408,6 +578,7 @@ class ServicePrivacyTest(unittest.TestCase):
             "state_retention_days": 7,
             "retry": {"initial_seconds": 1, "maximum_seconds": 2, "send_reconcile_seconds": 1},
             "allowlist": {"enabled": False, "conversation_guids": [], "participants": []},
+            "images": {"enabled": False},
             "web_search": {"enabled": False},
         }
 
@@ -473,6 +644,33 @@ class ServicePrivacyTest(unittest.TestCase):
                 service.run_once()
                 service.close()
             connect.assert_not_called()
+
+    def test_poll_timer_does_not_sleep_with_a_negative_duration(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config = self.service_config(root / "unused.db")
+            with (
+                patch.dict("os.environ", {"SEBASTIAN_HOME": str(root / "home")}),
+                patch("sebastian.service.DEFAULT_LOG_DIR", root / "logs"),
+            ):
+                service = SebastianService(config)
+                calls = 0
+
+                def run_once() -> None:
+                    nonlocal calls
+                    calls += 1
+                    if calls == 2:
+                        service.stop_requested = True
+
+                with (
+                    patch.object(service, "initialize"),
+                    patch.object(service, "run_once", side_effect=run_once),
+                    patch("sebastian.service.time.monotonic", side_effect=[0.0, 4.9, 5.1, 6.0]),
+                    patch("sebastian.service.time.sleep") as sleep,
+                ):
+                    self.assertEqual(service.run(), 0)
+                sleep.assert_not_called()
+                service.close()
 
     def test_accepted_send_remains_pending_reconciliation(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

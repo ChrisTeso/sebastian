@@ -9,8 +9,14 @@
   locally before any OpenAI call. Chris's outgoing tagged messages are accepted
   as explicit invocations; Sebastian-signed outgoing replies cannot loop.
 - Only a newly tagged conversation may leave the Mac. The API input contains the
-  trigger, available sender and participant identities, and at most the configured
-  number of prior messages from that same conversation (never more than 20).
+  trigger, available sender and participant identities, at most the configured
+  number of prior messages from that same conversation (never more than 20), and
+  up to the configured number of supported images attached to those messages.
+- Image paths must resolve inside `~/Library/Messages/Attachments`. Sebastian
+  skips videos, stickers, macOS sensitive-content flags, missing files,
+  unsupported formats, and files over the configured per-image or total limits.
+  HEIC conversion uses a private temporary directory that is removed before the
+  API call returns; encoded image data is held only in process memory.
 - Conversation history is explicitly delimited as untrusted data. It cannot change
   Sebastian's system instructions or grant tools.
 - The only model tool is OpenAI's hosted web search. Message requests cannot run
@@ -32,11 +38,12 @@
 
 ## Data sent to OpenAI
 
-Only a tagged conversation's bounded context is submitted through the Responses
-API with `store=false`. OpenAI service-level retention and abuse-monitoring terms
-still apply independently of the API `store` flag. If the model chooses hosted
-web search, a search query derived from the request may be sent to the search
-service and returned sources may appear as links in the reply.
+Only a tagged conversation's bounded text and supported image context is
+submitted through the Responses API with `store=false`. Images are sent as
+Base64 data URLs and count toward API usage. OpenAI service-level retention and
+abuse-monitoring terms still apply independently of the API `store` flag. If the
+model chooses hosted web search, a search query derived from the request may be
+sent to the search service and returned sources may appear as links in the reply.
 
 The service does not retain the API input or generated reply after processing.
 For crash-safe duplicate prevention it temporarily retains a one-way SHA-256
@@ -62,10 +69,10 @@ identity.
 - Chris can spend API quota by sending the explicit tag. Anyone in an allowed
   conversation can also spend quota by using it. Per-conversation and daily
   limits constrain this; the optional allowlist narrows incoming triggers.
-- Participants may include malicious instructions in conversation history.
-  Sebastian marks history as untrusted, supplies it only as data, exposes no local
-  action tools, and keeps conversations isolated. Model prompt-injection risk is
-  reduced but cannot be eliminated completely.
+- Participants may include malicious instructions in conversation text or
+  images. Sebastian marks both as untrusted, supplies them only as data, exposes
+  no local action tools, and keeps conversations isolated. Model prompt-injection
+  risk is reduced but cannot be eliminated completely.
 - Anyone with access to Chris's unlocked macOS account may inspect local state,
   change config, control the service, or access the login Keychain according to
   macOS policy. Sebastian is not a boundary against a compromised user session.

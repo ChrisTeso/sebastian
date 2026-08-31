@@ -16,6 +16,7 @@ from .logging_utils import configure_logging
 from .messages import (
     chat_guid,
     connect_readonly,
+    image_attachments,
     latest_rowid,
     outgoing_delivery_state,
     message_text_hash,
@@ -163,6 +164,21 @@ class SebastianService:
                 trigger.message_rowid,
                 int(self.config["max_context_messages"]),
             )
+            image_config = self.config.get("images", {})
+            images = []
+            if image_config.get("enabled", True):
+                images = image_attachments(
+                    conn,
+                    chat_id=trigger.chat_id,
+                    message_rowids=[item.rowid for item in [*history, message]],
+                    max_images=int(image_config.get("max_images", 4)),
+                    max_image_bytes=int(
+                        image_config.get("max_image_bytes", 10_485_760)
+                    ),
+                    max_total_bytes=int(
+                        image_config.get("max_total_bytes", 20_971_520)
+                    ),
+                )
             target_chat_guid = chat_guid(conn, trigger.chat_id)
         if not allowlisted(
             self.config,
@@ -187,6 +203,7 @@ class SebastianService:
                 trigger=message,
                 history=history,
                 participants=chat_participants,
+                images=images,
             )
             response = finalize_response(generated, int(self.config["max_response_chars"]))
         except Exception as exc:
@@ -250,7 +267,10 @@ class SebastianService:
                 break
             deadline = time.monotonic() + float(self.config["poll_seconds"])
             while not self.stop_requested and time.monotonic() < deadline:
-                time.sleep(min(0.5, deadline - time.monotonic()))
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                time.sleep(min(0.5, remaining))
         self.logger.info("service_stopped")
         return 0
 

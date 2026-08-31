@@ -94,6 +94,15 @@ def command_status(_args: argparse.Namespace) -> int:
     print(f"monitoring: {'disabled' if disabled else 'enabled'}")
     print(f"model: {config['model']}")
     print(f"reasoning: {config['reasoning']['effort']}")
+    image_config = config["images"]
+    print(
+        "images: "
+        + (
+            f"enabled (max {image_config['max_images']}, {image_config['detail']} detail)"
+            if image_config["enabled"]
+            else "disabled"
+        )
+    )
     print(f"config: {config_path()}")
     state_path = home / "state.sqlite3"
     if state_path.exists():
