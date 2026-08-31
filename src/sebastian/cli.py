@@ -10,6 +10,7 @@ import time
 import uuid
 from pathlib import Path
 
+from .codex_runner import resolve_codex_executable
 from .config import config_path, load_config, write_config
 from .constants import DEFAULT_APP, DEFAULT_LOG_DIR, DEFAULT_PLIST, LABEL, SIGNATURE, sebastian_home
 from .policy import contains_trigger, finalize_response, is_loop_response, strip_trigger
@@ -103,6 +104,14 @@ def command_status(_args: argparse.Namespace) -> int:
             else "disabled"
         )
     )
+    agent = config["agent"]
+    try:
+        codex_path = str(resolve_codex_executable(agent["codex_executable"]))
+        codex_state = f"enabled ({codex_path})" if agent["enabled"] else "disabled"
+    except Exception:
+        codex_state = "unavailable" if agent["enabled"] else "disabled"
+    print(f"agent: {codex_state}")
+    print(f"agent workspace: {Path(agent['workspace']).expanduser()}")
     print(f"config: {config_path()}")
     state_path = home / "state.sqlite3"
     if state_path.exists():
@@ -199,9 +208,23 @@ def command_doctor(args: argparse.Namespace) -> int:
     probe = "doctor-permissions" if args.permissions else "doctor-database"
     detail = "FDA + Automation" if args.permissions else "read-only via installed app identity"
     checks.append(("Messages permissions", installed_probe(probe), detail))
+    if config and config["agent"]["enabled"]:
+        try:
+            executable = resolve_codex_executable(config["agent"]["codex_executable"])
+            checks.append(("Codex CLI", True, str(executable)))
+        except Exception as exc:
+            checks.append(("Codex CLI", False, type(exc).__name__))
     if config and args.openai:
         checks.append(
             ("OpenAI connectivity", installed_probe("doctor-openai", timeout=120), "Responses API reachable")
+        )
+    if config and args.codex:
+        checks.append(
+            (
+                "Codex bridge",
+                installed_probe("doctor-codex", timeout=180),
+                "installed app identity + existing Codex login",
+            )
         )
     for name, ok, detail in checks:
         print(f"{'PASS' if ok else 'FAIL'}  {name}: {detail}")
@@ -346,6 +369,11 @@ def build_parser() -> argparse.ArgumentParser:
     logs.set_defaults(handler=command_logs)
     doctor = sub.add_parser("doctor")
     doctor.add_argument("--openai", action="store_true", help="Make a minimal paid API connectivity call.")
+    doctor.add_argument(
+        "--codex",
+        action="store_true",
+        help="Run a minimal Codex bridge call from the installed app identity.",
+    )
     doctor.add_argument("--permissions", action="store_true", help="Probe from the installed app identity.")
     doctor.set_defaults(handler=command_doctor)
     test = sub.add_parser("test")

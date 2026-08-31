@@ -3,11 +3,15 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import os
+import secrets
 import signal
 import sys
+import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
+from .codex_runner import CodexRunner, consequential_request
 from .config import load_config
 from .constants import DEFAULT_LOG_DIR, SIGNATURE, sebastian_home
 from .generator import connectivity_test, generate_response
@@ -21,15 +25,24 @@ from .messages import (
     outgoing_delivery_state,
     message_text_hash,
     message_by_id,
+    message_guid_hash,
+    message_is_fresh,
     messages_after,
     participants,
     previous_messages,
     signed_outgoing_rowids_after,
     validate_schema,
 )
-from .policy import allowlisted, finalize_response, should_trigger, strip_trigger
+from .policy import agent_command, allowlisted, finalize_response, should_trigger, strip_trigger
 from .sender import automation_probe, send_to_chat
 from .state import StateStore, Trigger, parse_iso, utc_now
+
+
+@dataclass(frozen=True)
+class PendingApproval:
+    request: str
+    chat_guid: str
+    expires_at: dt.datetime
 
 
 class SebastianService:
@@ -41,8 +54,25 @@ class SebastianService:
         self.logger = configure_logging(DEFAULT_LOG_DIR / "service.log")
         self.state = StateStore(self.home / "state.sqlite3")
         self.messages_path = Path(self.config["messages_db"]).expanduser()
+        self.agent_lock = threading.Lock()
+        self.agent_thread: threading.Thread | None = None
+        self.agent_trigger_id: int | None = None
+        self.pending_approvals: dict[str, PendingApproval] = {}
+        self.agent_runner: CodexRunner | None = None
+        if self.config.get("agent", {}).get("enabled", True):
+            try:
+                self.agent_runner = CodexRunner(self.config)
+            except Exception as exc:
+                self.logger.error(
+                    "agent_unavailable error_type=%s", type(exc).__name__
+                )
 
     def close(self) -> None:
+        if self.agent_runner is not None:
+            self.agent_runner.cancel()
+        thread = self.agent_thread
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=5)
         self.state.close()
         for handler in self.logger.handlers:
             handler.close()
@@ -53,6 +83,8 @@ class SebastianService:
 
     def request_stop(self, *_args: object) -> None:
         self.stop_requested = True
+        if self.agent_runner is not None:
+            self.agent_runner.cancel()
 
     def initialize(self) -> None:
         with connect_readonly(self.messages_path) as conn:
@@ -61,11 +93,14 @@ class SebastianService:
         prior = self.state.get_meta("last_seen_rowid")
         self.state.initialize_cursor(latest)
         recovered = self.state.recover_interrupted_generation()
+        interrupted_agents = self.state.recover_interrupted_agents()
         self.prune_if_due(force=True)
         if prior is None:
             self.logger.info("service_initialized cursor=%s", latest)
         if recovered:
             self.logger.warning("generation_recovered count=%s", recovered)
+        if interrupted_agents:
+            self.logger.warning("agent_jobs_interrupted count=%s", interrupted_agents)
 
     def discover(self) -> None:
         if self.disabled():
@@ -79,6 +114,22 @@ class SebastianService:
                 max_rowid = max(max_rowid, message.rowid)
                 if not should_trigger(text=message.text, is_from_me=message.is_from_me):
                     continue
+                command = agent_command(message.text)
+                if command is not None:
+                    if not message.is_from_me:
+                        self.logger.info("agent_trigger_blocked_not_owner rowid=%s", message.rowid)
+                        continue
+                    if not self.config.get("agent", {}).get("enabled", True):
+                        self.logger.info("agent_trigger_disabled rowid=%s", message.rowid)
+                        continue
+                    max_age = int(
+                        self.config.get("agent", {}).get("max_message_age_seconds", 120)
+                    )
+                else:
+                    max_age = int(self.config.get("max_trigger_age_seconds", 300))
+                if not message_is_fresh(message, max_age):
+                    self.logger.info("stale_trigger_ignored rowid=%s", message.rowid)
+                    continue
                 if not allowlisted(
                     self.config,
                     message.chat_guid,
@@ -90,6 +141,9 @@ class SebastianService:
                 result = self.state.discover_trigger(
                     chat_id=message.chat_id,
                     message_rowid=message.rowid,
+                    message_guid_hash=(
+                        message_guid_hash(message.guid) if message.guid else None
+                    ),
                     per_conversation_limit=int(
                         self.config["max_triggers_per_conversation_per_minute"]
                     ),
@@ -146,6 +200,213 @@ class SebastianService:
                     )
                     self.logger.warning("send_requeued trigger=%s", trigger.id)
 
+    def _send_trigger_response(
+        self,
+        state: StateStore,
+        trigger_id: int,
+        target_chat_guid: str,
+        body: str,
+        *,
+        retry_trigger: Trigger | None = None,
+    ) -> None:
+        response = finalize_response(body, int(self.config["max_response_chars"]))
+        state.mark_sending(trigger_id, message_text_hash(response))
+        if self.disabled() or self.stop_requested:
+            if retry_trigger is not None:
+                state.schedule_retry(
+                    trigger_id, self._retry_delay(retry_trigger), "kill_switch"
+                )
+            else:
+                state.mark_terminal(trigger_id, "agent_interrupted", "kill_switch")
+            return
+        try:
+            send_to_chat(target_chat_guid, response)
+        except Exception as exc:
+            # The AppleEvent result is ambiguous. Keep 'sending' for DB reconciliation.
+            self.logger.error(
+                "send_ambiguous trigger=%s error_type=%s", trigger_id, type(exc).__name__
+            )
+            return
+        self.logger.info("send_accepted trigger=%s", trigger_id)
+
+    def _prune_pending_approvals(self) -> None:
+        now = utc_now()
+        expired = [
+            token
+            for token, pending in self.pending_approvals.items()
+            if pending.expires_at <= now
+        ]
+        for token in expired:
+            self.pending_approvals.pop(token, None)
+
+    def _create_pending_approval(self, request: str, chat_guid_value: str) -> str:
+        settings = self.config.get("agent", {})
+        ttl = int(settings.get("approval_ttl_seconds", 600))
+        with self.agent_lock:
+            self._prune_pending_approvals()
+            token = secrets.token_hex(3).upper()
+            while token in self.pending_approvals:
+                token = secrets.token_hex(3).upper()
+            self.pending_approvals[token] = PendingApproval(
+                request=request,
+                chat_guid=chat_guid_value,
+                expires_at=utc_now() + dt.timedelta(seconds=ttl),
+            )
+        return token
+
+    def _agent_is_running(self) -> bool:
+        thread = self.agent_thread
+        return bool(thread and thread.is_alive())
+
+    def _start_agent_job(
+        self,
+        trigger: Trigger,
+        target_chat_guid: str,
+        request: str,
+        *,
+        approved: bool,
+    ) -> bool:
+        if self.agent_runner is None:
+            self._send_trigger_response(
+                self.state,
+                trigger.id,
+                target_chat_guid,
+                "Codex is unavailable on this Mac. Run sebastian doctor to inspect the setup.",
+            )
+            return False
+        with self.agent_lock:
+            if self._agent_is_running():
+                self._send_trigger_response(
+                    self.state,
+                    trigger.id,
+                    target_chat_guid,
+                    "A Codex job is already running. Send @sebastian status or @sebastian cancel.",
+                )
+                return False
+            self.state.mark_agent_running(trigger.id)
+            self.agent_trigger_id = trigger.id
+            thread = threading.Thread(
+                target=self._agent_worker,
+                args=(trigger.id, target_chat_guid, request, approved),
+                name=f"sebastian-codex-{trigger.id}",
+                daemon=True,
+            )
+            self.agent_thread = thread
+            thread.start()
+        self.logger.info("agent_job_started trigger=%s approved=%s", trigger.id, approved)
+        return True
+
+    def _agent_worker(
+        self,
+        trigger_id: int,
+        target_chat_guid: str,
+        request: str,
+        approved: bool,
+    ) -> None:
+        assert self.agent_runner is not None
+        result = self.agent_runner.run(request, approved=approved)
+        if result.status == "completed":
+            body = result.output
+        elif result.status == "approval_required":
+            token = self._create_pending_approval(request, target_chat_guid)
+            body = (
+                f"Approval required: {result.output}. "
+                f"Reply @sebastian approve {token} before the code expires."
+            )
+        elif result.status == "cancelled":
+            body = "The Codex job was cancelled."
+        else:
+            details = {
+                "timeout": "The Codex job exceeded its time limit.",
+                "codex_not_logged_in": "Codex is not logged in on this Mac.",
+                "workspace_unavailable": "The configured Codex workspace is unavailable.",
+                "codex_unavailable": "The Codex CLI is unavailable.",
+            }
+            body = details.get(
+                result.error_code or "",
+                "The Codex job failed without making a reliable completion report.",
+            )
+        state = StateStore(self.home / "state.sqlite3")
+        try:
+            if self.disabled() or self.stop_requested:
+                state.mark_terminal(trigger_id, "agent_interrupted", "kill_switch")
+            else:
+                self._send_trigger_response(state, trigger_id, target_chat_guid, body)
+        finally:
+            state.close()
+            with self.agent_lock:
+                if self.agent_trigger_id == trigger_id:
+                    self.agent_trigger_id = None
+                    self.agent_thread = None
+        self.logger.info(
+            "agent_job_finished trigger=%s status=%s", trigger_id, result.status
+        )
+
+    def _process_agent_command(
+        self,
+        trigger: Trigger,
+        target_chat_guid: str,
+        command: tuple[str, str],
+    ) -> None:
+        action, value = command
+        if action == "status":
+            with self.agent_lock:
+                self._prune_pending_approvals()
+                running = self._agent_is_running()
+                approvals = len(self.pending_approvals)
+            if running:
+                body = "A Codex job is running. Send @sebastian cancel to stop it."
+            elif approvals:
+                body = f"No Codex job is running. {approvals} approval request is pending."
+            else:
+                body = "No Codex job is running and no approval is pending."
+            self._send_trigger_response(self.state, trigger.id, target_chat_guid, body)
+            return
+        if action == "cancel":
+            cancelled = self.agent_runner.cancel() if self.agent_runner else False
+            body = "Cancellation requested." if cancelled else "No Codex job is running."
+            self._send_trigger_response(self.state, trigger.id, target_chat_guid, body)
+            return
+        if action == "approve":
+            with self.agent_lock:
+                self._prune_pending_approvals()
+                pending = self.pending_approvals.get(value)
+                if pending and pending.chat_guid == target_chat_guid and not self._agent_is_running():
+                    self.pending_approvals.pop(value, None)
+                else:
+                    pending = None
+            if pending is None:
+                self._send_trigger_response(
+                    self.state,
+                    trigger.id,
+                    target_chat_guid,
+                    "That approval code is invalid, expired, belongs to another conversation, or a job is already running.",
+                )
+                return
+            self._start_agent_job(
+                trigger,
+                target_chat_guid,
+                pending.request,
+                approved=True,
+            )
+            return
+        if consequential_request(value):
+            token = self._create_pending_approval(value, target_chat_guid)
+            self._send_trigger_response(
+                self.state,
+                trigger.id,
+                target_chat_guid,
+                "This request can create an external or destructive side effect. "
+                f"Reply @sebastian approve {token} before the code expires to proceed.",
+            )
+            return
+        self._start_agent_job(
+            trigger,
+            target_chat_guid,
+            value,
+            approved=False,
+        )
+
     def process_trigger(self, trigger: Trigger) -> None:
         if self.disabled():
             return
@@ -156,6 +417,14 @@ class SebastianService:
                 return
             if not should_trigger(text=message.text, is_from_me=message.is_from_me):
                 self.state.mark_terminal(trigger.id, "ignored", "no_longer_trigger")
+                return
+            command = agent_command(message.text)
+            target_chat_guid = chat_guid(conn, trigger.chat_id)
+            if command is not None:
+                if not message.is_from_me:
+                    self.state.mark_terminal(trigger.id, "ignored", "agent_owner_required")
+                    return
+                self._process_agent_command(trigger, target_chat_guid, command)
                 return
             chat_participants = participants(conn, trigger.chat_id)
             history = previous_messages(
@@ -179,7 +448,6 @@ class SebastianService:
                         image_config.get("max_total_bytes", 20_971_520)
                     ),
                 )
-            target_chat_guid = chat_guid(conn, trigger.chat_id)
         if not allowlisted(
             self.config,
             target_chat_guid,
@@ -227,22 +495,13 @@ class SebastianService:
         if not still_allowed:
             self.state.mark_terminal(trigger.id, "ignored", "allowlist")
             return
-        response_hash = message_text_hash(response)
-        self.state.mark_sending(trigger.id, response_hash)
-        if self.disabled():
-            self.state.schedule_retry(trigger.id, self._retry_delay(trigger), "kill_switch")
-            return
-        try:
-            send_to_chat(target_chat_guid, response)
-        except Exception as exc:
-            # The AppleEvent result is ambiguous. Keep 'sending' for DB reconciliation.
-            self.logger.error(
-                "send_ambiguous trigger=%s error_type=%s", trigger.id, type(exc).__name__
-            )
-            return
-        # AppleScript confirms only that Messages accepted the command. Keep the
-        # write-ahead state until the outgoing row is observed in chat.db.
-        self.logger.info("send_accepted trigger=%s", trigger.id)
+        self._send_trigger_response(
+            self.state,
+            trigger.id,
+            target_chat_guid,
+            response,
+            retry_trigger=trigger,
+        )
 
     def run_once(self) -> None:
         if self.disabled():
@@ -322,6 +581,28 @@ def openai_probe() -> int:
     return 0
 
 
+def codex_probe() -> int:
+    try:
+        config = load_config()
+        probe_config = dict(config)
+        probe_config["agent"] = {
+            **config.get("agent", {}),
+            "sandbox": "read-only",
+            "timeout_seconds": 120,
+            "reasoning_effort": "low",
+        }
+        result = CodexRunner(probe_config).run(
+            "Do not use tools or modify anything. Reply with exactly CODEX_BRIDGE_OK."
+        )
+        if result.status != "completed" or result.output.strip() != "CODEX_BRIDGE_OK":
+            raise RuntimeError(result.error_code or result.status)
+    except Exception as exc:
+        print(f"Codex bridge probe failed ({type(exc).__name__}).", file=sys.stderr)
+        return 1
+    print("Sebastian reached Codex through the installed app identity.")
+    return 0
+
+
 def verify_trigger(trigger_id: int) -> int:
     state = StateStore(sebastian_home() / "state.sqlite3")
     try:
@@ -367,6 +648,7 @@ def parse_args() -> argparse.Namespace:
             "doctor-database",
             "doctor-keychain",
             "doctor-openai",
+            "doctor-codex",
             "doctor-permissions",
             "verify-trigger",
         ],
@@ -388,6 +670,8 @@ def main() -> int:
         return keychain_probe()
     if args.command == "doctor-openai":
         return openai_probe()
+    if args.command == "doctor-codex":
+        return codex_probe()
     if args.command == "verify-trigger":
         if not args.value or not args.value.isdigit():
             print("verify-trigger requires a numeric trigger ID.", file=sys.stderr)

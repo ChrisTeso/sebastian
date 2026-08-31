@@ -25,6 +25,7 @@ class Trigger:
     id: int
     chat_id: int
     message_rowid: int
+    message_guid_hash: str | None
     status: str
     response_hash: str | None
     send_started_at: str | None
@@ -62,6 +63,7 @@ class StateStore:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 chat_id INTEGER NOT NULL,
                 message_rowid INTEGER NOT NULL,
+                message_guid_hash TEXT,
                 status TEXT NOT NULL,
                 response_hash TEXT,
                 discovered_at TEXT NOT NULL,
@@ -90,6 +92,15 @@ class StateStore:
             );
             CREATE INDEX IF NOT EXISTS idx_api_calls_time ON api_calls(called_at);
             """
+        )
+        columns = {
+            str(row[1]) for row in self.conn.execute("PRAGMA table_info(triggers)").fetchall()
+        }
+        if "message_guid_hash" not in columns:
+            self.conn.execute("ALTER TABLE triggers ADD COLUMN message_guid_hash TEXT")
+        self.conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_triggers_message_guid_hash "
+            "ON triggers(message_guid_hash) WHERE message_guid_hash IS NOT NULL"
         )
         self.conn.commit()
 
@@ -133,6 +144,7 @@ class StateStore:
         *,
         chat_id: int,
         message_rowid: int,
+        message_guid_hash: str | None = None,
         per_conversation_limit: int,
         now: dt.datetime | None = None,
     ) -> str:
@@ -141,8 +153,12 @@ class StateStore:
         cutoff = iso(moment - dt.timedelta(minutes=1))
         with self._immediate_transaction():
             existing = self.conn.execute(
-                "SELECT status FROM triggers WHERE chat_id = ? AND message_rowid = ?",
-                (chat_id, message_rowid),
+                """
+                SELECT status FROM triggers
+                WHERE (chat_id = ? AND message_rowid = ?)
+                   OR (? IS NOT NULL AND message_guid_hash = ?)
+                """,
+                (chat_id, message_rowid, message_guid_hash, message_guid_hash),
             ).fetchone()
             if existing:
                 return "duplicate"
@@ -156,12 +172,13 @@ class StateStore:
             cursor = self.conn.execute(
                 """
                 INSERT INTO triggers(
-                    chat_id, message_rowid, status, discovered_at, next_attempt_at
-                ) VALUES (?, ?, ?, ?, ?)
+                    chat_id, message_rowid, message_guid_hash, status, discovered_at, next_attempt_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
                     chat_id,
                     message_rowid,
+                    message_guid_hash,
                     status,
                     timestamp,
                     timestamp if status == "pending" else None,
@@ -179,6 +196,9 @@ class StateStore:
             id=int(row["id"]),
             chat_id=int(row["chat_id"]),
             message_rowid=int(row["message_rowid"]),
+            message_guid_hash=(
+                str(row["message_guid_hash"]) if row["message_guid_hash"] else None
+            ),
             status=str(row["status"]),
             response_hash=str(row["response_hash"]) if row["response_hash"] else None,
             send_started_at=str(row["send_started_at"]) if row["send_started_at"] else None,
@@ -227,6 +247,28 @@ class StateStore:
                 (iso(),),
             )
         return cursor.rowcount
+
+    def recover_interrupted_agents(self) -> int:
+        with self.conn:
+            cursor = self.conn.execute(
+                """
+                UPDATE triggers SET status='agent_interrupted', next_attempt_at=NULL,
+                    error_code='service_restarted'
+                WHERE status='agent_running'
+                """
+            )
+        return cursor.rowcount
+
+    def mark_agent_running(self, trigger_id: int) -> None:
+        with self.conn:
+            self.conn.execute(
+                """
+                UPDATE triggers SET status='agent_running', last_attempt_at=?,
+                    attempt_count=attempt_count+1, next_attempt_at=NULL, error_code=NULL
+                WHERE id=?
+                """,
+                (iso(), trigger_id),
+            )
 
     def reserve_api_call(self, trigger_id: int, daily_limit: int, now: dt.datetime | None = None) -> bool:
         moment = now or utc_now()
@@ -286,7 +328,10 @@ class StateStore:
                 """
                 DELETE FROM triggers
                 WHERE discovered_at < ?
-                  AND status IN ('sent', 'ignored', 'unavailable', 'rate_limited', 'daily_limited')
+                  AND status IN (
+                    'sent', 'ignored', 'unavailable', 'rate_limited', 'daily_limited',
+                    'agent_interrupted'
+                  )
                   AND id NOT IN (SELECT trigger_id FROM rate_events)
                   AND id NOT IN (SELECT trigger_id FROM api_calls)
                 """,
@@ -305,7 +350,13 @@ class StateStore:
             )
 
     def mark_terminal(self, trigger_id: int, status: str, error_code: str | None = None) -> None:
-        allowed = {"ignored", "unavailable", "rate_limited", "daily_limited"}
+        allowed = {
+            "ignored",
+            "unavailable",
+            "rate_limited",
+            "daily_limited",
+            "agent_interrupted",
+        }
         if status not in allowed:
             raise ValueError("Unsupported terminal trigger status.")
         with self.conn:

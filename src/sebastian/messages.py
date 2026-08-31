@@ -142,6 +142,18 @@ def datetime_to_mac_time(value: dt.datetime) -> int:
     return int((value.astimezone(dt.UTC) - APPLE_EPOCH).total_seconds() * 1_000_000_000)
 
 
+def message_is_fresh(
+    message: Message,
+    max_age_seconds: int,
+    now: dt.datetime | None = None,
+) -> bool:
+    moment = (now or dt.datetime.now(dt.UTC)).astimezone(dt.UTC)
+    timestamp = mac_time_to_datetime(message.date)
+    age = (moment - timestamp).total_seconds()
+    # Allow modest clock skew, but never accept a message dated far in the future.
+    return -300 <= age <= max_age_seconds
+
+
 def _iter_strings(obj: Any, seen: set[int] | None = None) -> Iterable[str]:
     seen = seen or set()
     if id(obj) in seen:
@@ -197,6 +209,12 @@ def message_text_hash(text: str) -> str:
     return hashlib.sha256(clean_text(text).encode("utf-8")).hexdigest()
 
 
+def message_guid_hash(guid: str) -> str:
+    import hashlib
+
+    return hashlib.sha256((guid or "").encode("utf-8")).hexdigest()
+
+
 def _rows_to_messages(rows: Iterable[tuple[Any, ...]], include_empty: bool = False) -> list[Message]:
     messages: list[Message] = []
     for row in rows:
@@ -209,7 +227,7 @@ def _rows_to_messages(rows: Iterable[tuple[Any, ...]], include_empty: bool = Fal
         messages.append(
             Message(
                 rowid=int(rowid),
-                guid=str(guid),
+                guid=str(guid) if guid else "",
                 chat_id=int(chat_id),
                 chat_guid=str(chat_guid),
                 date=int(date or 0),

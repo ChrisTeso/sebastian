@@ -4,6 +4,10 @@ import re
 from .constants import SIGNATURE
 
 TAG_RE = re.compile(r"(?<![\w@])@sebastian\b", re.IGNORECASE)
+CODEX_COMMAND_RE = re.compile(r"^\s*codex\s*:\s*(.+)\s*$", re.IGNORECASE | re.DOTALL)
+APPROVE_COMMAND_RE = re.compile(r"^\s*approve\s+([A-Z0-9]{6})\s*$", re.IGNORECASE)
+CANCEL_COMMAND_RE = re.compile(r"^\s*cancel\s*$", re.IGNORECASE)
+STATUS_COMMAND_RE = re.compile(r"^\s*status\s*$", re.IGNORECASE)
 SIGNATURE_RE = re.compile(r"(?:\s*— Sebastian, Chris[’']s AI assistant\s*)+$", re.IGNORECASE)
 SIGNATURE_ANY_RE = re.compile(r"— Sebastian, Chris[’']s AI assistant", re.IGNORECASE)
 
@@ -31,6 +35,22 @@ def strip_trigger(text: str) -> str:
     cleaned = re.sub(r"\s+([,.;:!?])", r"\1", cleaned)
     cleaned = re.sub(r"[,;:]([!?])", r"\1", cleaned)
     return cleaned.strip(" \t\r\n,;:-")
+
+
+def agent_command(text: str) -> tuple[str, str] | None:
+    value = strip_trigger(text)
+    match = CODEX_COMMAND_RE.match(value)
+    if match:
+        request = match.group(1).strip()
+        return ("run", request) if request else None
+    match = APPROVE_COMMAND_RE.match(value)
+    if match:
+        return "approve", match.group(1).upper()
+    if CANCEL_COMMAND_RE.match(value):
+        return "cancel", ""
+    if STATUS_COMMAND_RE.match(value):
+        return "status", ""
+    return None
 
 
 def is_loop_response(text: str) -> bool:

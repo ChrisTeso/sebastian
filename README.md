@@ -19,9 +19,12 @@ The current implementation targets macOS 26 on Apple Silicon:
   Messages stores most text on this Mac. Same-conversation JPEG, PNG, WebP, and
   HEIC image attachments can be included for visual interpretation; HEIC is
   converted to JPEG in a private temporary directory and immediately removed.
-- Generate: the OpenAI Responses API, `store=false`, and only the hosted
-  `web_search` tool. Image inputs use bounded in-memory data URLs. No message
-  request can invoke local tools or external actions.
+- Generate: ordinary tagged chat uses the OpenAI Responses API, `store=false`,
+  and only hosted `web_search`. Image inputs use bounded in-memory data URLs.
+- Act: an outgoing, fresh `@sebastian codex:` command launches the locally
+  authenticated Codex CLI in `~/Code` with a workspace-write sandbox and the
+  user's installed Codex skills and plugins. Agent prompts and results stay in
+  memory or private temporary files that are removed after each run.
 - Send: Messages' native AppleScript `send ... to chat id`, which preserves the
   originating direct or group conversation.
 - Run: `~/Applications/Sebastian.app` is the stable permission identity, started
@@ -72,6 +75,7 @@ sebastian logs
 sebastian doctor
 sebastian doctor --permissions
 sebastian doctor --openai
+sebastian doctor --codex
 sebastian test --dry-run
 sebastian test --live
 sebastian allowlist
@@ -96,6 +100,33 @@ sebastian allowlist --add-participant '+15555550100' --enable
 Entries are stored only in the local mode-0600 configuration and are never
 printed by `sebastian allowlist` or written to logs.
 
+### Codex over Messages
+
+Agent commands are separate from ordinary Sebastian conversation:
+
+```text
+@sebastian codex: inspect the Mini Me repository and summarize failing tests
+@sebastian status
+@sebastian cancel
+@sebastian approve A1B2C3
+```
+
+Only an outgoing message identified by Messages' `is_from_me` field can invoke
+Codex or use an approval code. Agent commands must be no more than two minutes
+old when discovered and are deduplicated using a one-way hash of the Messages
+GUID, so an older iCloud insertion is not replayed. One Codex job can run at a
+time. Interrupted jobs are marked terminal and are never automatically rerun.
+
+Codex runs ephemerally, inherits the existing Codex login and enabled plugins,
+and does not inherit Sebastian's OpenAI API key. Common external, destructive,
+financial, account, deployment, publishing, and communication requests pause
+before execution and return a six-character approval code valid for ten minutes
+in that same conversation. Codex may also request approval if a consequential
+step emerges during otherwise safe work.
+
+The default writable workspace is `~/Code`. Computer and browser control require
+the Mac to be awake, signed in, and able to open the relevant local application.
+
 ### Configuration
 
 Conservative defaults live in `config.sebastian.example.json`. The installed
@@ -111,7 +142,9 @@ copy is `~/Library/Application Support/Sebastian/config.json` and supports:
 - metadata-state retention (seven days by default; counters are pruned sooner);
 - an optional exact allowlist;
 - polling and duplicate-reconciliation intervals; and
-- hosted web search on/off.
+- hosted web search on/off; and
+- agent enablement, two-minute freshness window, Codex executable, writable
+  workspace, sandbox, timeout, approval lifetime, model, and reasoning effort.
 
 Restart Sebastian after changing configuration.
 
@@ -136,6 +169,9 @@ Restart Sebastian after changing configuration.
   HEIC images from the trigger or recent same-conversation context. It skips
   videos, stickers, macOS sensitive-content flags, missing iCloud files,
   unsupported formats, and files over the configured limits.
+- **Codex unavailable:** run `codex --version`, update the CLI if necessary, then
+  run `sebastian doctor`. Sebastian currently requires a Codex CLI new enough to
+  support the configured model and an existing local Codex login.
 
 ### Uninstall
 

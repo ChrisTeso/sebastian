@@ -6,6 +6,7 @@
   },
   "messages_db": "~/Library/Messages/chat.db",
   "poll_seconds": 5,
+  "max_trigger_age_seconds": 300,
   "max_response_chars": 1200,
   "max_context_messages": 20,
   "max_triggers_per_conversation_per_minute": 3,
@@ -31,5 +32,16 @@
   "web_search": {
     "enabled": true,
     "search_context_size": "low"
+  },
+  "agent": {
+    "enabled": true,
+    "max_message_age_seconds": 120,
+    "codex_executable": "",
+    "workspace": "~/Code",
+    "sandbox": "workspace-write",
+    "timeout_seconds": 1800,
+    "approval_ttl_seconds": 600,
+    "model": "",
+    "reasoning_effort": "medium"
   }
 }

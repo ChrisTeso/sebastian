@@ -14,6 +14,7 @@ DEFAULTS: dict[str, Any] = {
     "reasoning": {"effort": "medium"},
     "messages_db": str(DEFAULT_MESSAGES_DB),
     "poll_seconds": 5,
+    "max_trigger_age_seconds": 300,
     "max_response_chars": 1200,
     "max_context_messages": 20,
     "max_triggers_per_conversation_per_minute": 3,
@@ -29,6 +30,17 @@ DEFAULTS: dict[str, Any] = {
         "detail": "auto",
     },
     "web_search": {"enabled": True, "search_context_size": "low"},
+    "agent": {
+        "enabled": True,
+        "max_message_age_seconds": 120,
+        "codex_executable": "",
+        "workspace": "~/Code",
+        "sandbox": "workspace-write",
+        "timeout_seconds": 1800,
+        "approval_ttl_seconds": 600,
+        "model": "",
+        "reasoning_effort": "medium",
+    },
 }
 
 
@@ -59,6 +71,7 @@ def load_config(path: Path | None = None) -> dict[str, Any]:
 def validate_config(config: dict[str, Any]) -> None:
     numeric_bounds = {
         "poll_seconds": (1, 300),
+        "max_trigger_age_seconds": (30, 86_400),
         "max_response_chars": (len("— Sebastian, Chris’s AI assistant") + 2, 10000),
         "max_context_messages": (0, 20),
         "max_triggers_per_conversation_per_minute": (1, 60),
@@ -103,6 +116,33 @@ def validate_config(config: dict[str, Any]) -> None:
             raise ValueError(f"Invalid images.{key}: expected {minimum}..{maximum}.")
     if images.get("detail") not in {"low", "high", "auto"}:
         raise ValueError("images.detail must be low, high, or auto.")
+    agent = config.get("agent", {})
+    if not isinstance(agent.get("enabled"), bool):
+        raise ValueError("agent.enabled must be true or false.")
+    for key, minimum, maximum in (
+        ("max_message_age_seconds", 30, 600),
+        ("timeout_seconds", 30, 7_200),
+        ("approval_ttl_seconds", 60, 3_600),
+    ):
+        value = agent.get(key)
+        if not isinstance(value, int) or not minimum <= value <= maximum:
+            raise ValueError(f"Invalid agent.{key}: expected {minimum}..{maximum}.")
+    for key in ("codex_executable", "workspace", "model"):
+        if not isinstance(agent.get(key), str):
+            raise ValueError(f"agent.{key} must be a string.")
+    if agent.get("sandbox") not in {"read-only", "workspace-write"}:
+        raise ValueError("agent.sandbox must be read-only or workspace-write.")
+    if agent.get("reasoning_effort") not in {
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+    }:
+        raise ValueError(
+            "agent.reasoning_effort must be none, low, medium, high, xhigh, or max."
+        )
 
 
 def write_config(config: dict[str, Any], path: Path | None = None) -> None:

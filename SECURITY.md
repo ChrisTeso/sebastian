@@ -5,9 +5,10 @@
 - `~/Library/Messages/chat.db` is opened with SQLite `mode=ro`, query-only mode,
   and short-lived connections. Sebastian never updates, copies, checkpoints, or
   otherwise modifies Messages data.
-- System, untagged, attachment-only, and Sebastian-signed messages are rejected
-  locally before any OpenAI call. Chris's outgoing tagged messages are accepted
-  as explicit invocations; Sebastian-signed outgoing replies cannot loop.
+- System, untagged, attachment-only, stale, and Sebastian-signed messages are
+  rejected locally before any OpenAI or Codex call. Chris's outgoing tagged
+  messages are accepted as explicit invocations; Sebastian-signed outgoing
+  replies cannot loop.
 - Only a newly tagged conversation may leave the Mac. The API input contains the
   trigger, available sender and participant identities, at most the configured
   number of prior messages from that same conversation (never more than 20), and
@@ -19,15 +20,26 @@
   API call returns; encoded image data is held only in process memory.
 - Conversation history is explicitly delimited as untrusted data. It cannot change
   Sebastian's system instructions or grant tools.
-- The only model tool is OpenAI's hosted web search. Message requests cannot run
-  shell commands, access files, send email, use calendars, make purchases, or take
-  financial or account actions.
+- Ordinary tagged conversation exposes only OpenAI's hosted web search. Local
+  actions require the explicit outgoing `@sebastian codex:` command. Codex runs
+  ephemerally with a workspace-write sandbox rooted at the configured workspace.
+- Agent commands are owner-only (`is_from_me=1`), must be no more than two
+  minutes old, and are deduplicated with a SHA-256 hash of the Messages GUID.
+  Interrupted agent jobs are never automatically replayed.
+- Consequential requests are paused before execution and require a random,
+  six-character approval code sent from the same conversation within ten
+  minutes. The Codex worker is also instructed to stop and request approval if a
+  consequential step emerges during execution.
 - The OpenAI key is read from the login Keychain into process memory. It is never
   accepted from config, hardcoded, printed, or logged. Use a dedicated OpenAI
   project/key so usage and revocation are isolated.
-- State stores only Messages row IDs, local chat IDs, statuses, counters, and
-  timestamps. A reply hash exists only while a send is being reconciled and is
-  cleared after confirmation. Expired counters are pruned and completed trigger
+- The Codex subprocess uses the user's existing Codex login. Sebastian removes
+  its dedicated API key from the subprocess environment before Codex or any
+  plugin starts.
+- State stores only Messages row IDs, a one-way message-GUID hash, local chat
+  IDs, statuses, counters, and timestamps. A reply hash exists only while a send
+  is being reconciled and is cleared after confirmation. Expired counters are
+  pruned and completed trigger
   metadata is retained for seven days by default. There is no message or reply
   text column. State and config are mode 0600 in a mode 0700 directory.
 - Rotating logs contain event names, local numeric IDs, status codes, counts, and
@@ -45,24 +57,24 @@ abuse-monitoring terms still apply independently of the API `store` flag. If the
 model chooses hosted web search, a search query derived from the request may be
 sent to the search service and returned sources may appear as links in the reply.
 
-The service does not retain the API input or generated reply after processing.
+The service does not retain API or Codex input or generated replies after processing.
 For crash-safe duplicate prevention it temporarily retains a one-way SHA-256
 hash of the normalized outgoing reply until Messages confirms delivery or the
 send is safely requeued.
 
 ## macOS permissions
 
-Sebastian needs two macOS privacy grants and no others:
+Ordinary Sebastian replies need two macOS privacy grants:
 
 - **Full Disk Access** for `~/Applications/Sebastian.app`, solely to read the
   user's Messages database.
 - **Automation > Messages** for Sebastian, solely to send a reply to the same
   Messages chat ID and to verify that an account is enabled.
 
-It does not need Accessibility, Contacts, Screen Recording, Location, or a
-separate Apple ID. Do not grant these permissions to Terminal or a broad Python
-installation merely to make Sebastian work; grant them to the installed app
-identity.
+It does not need a separate Apple ID. Codex plugins that control browsers or the
+desktop may require their own existing application permissions. Keep those
+permissions attached to the Codex/ChatGPT application identities rather than
+granting broad permissions to Terminal or a general Python installation.
 
 ## Threats and residual risks
 
@@ -73,6 +85,14 @@ identity.
   images. Sebastian marks both as untrusted, supplies them only as data, exposes
   no local action tools, and keeps conversations isolated. Model prompt-injection
   risk is reduced but cannot be eliminated completely.
+- Approval detection combines conservative request matching with Codex
+  instructions; it is not a complete semantic proof that every possible side
+  effect will be recognized. Keep the configured workspace bounded, review
+  installed plugins, and use `sebastian stop` as the immediate kill switch.
+- An attacker who can send messages as Chris through the same Apple account or
+  control the unlocked Mac can issue owner-authorized agent commands. The
+  Messages channel is convenient remote control, not a second authentication
+  factor.
 - Anyone with access to Chris's unlocked macOS account may inspect local state,
   change config, control the service, or access the login Keychain according to
   macOS policy. Sebastian is not a boundary against a compromised user session.

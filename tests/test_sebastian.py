@@ -17,20 +17,24 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from sebastian.constants import SIGNATURE  # noqa: E402
 import sebastian.cli as cli_module  # noqa: E402
+from sebastian.codex_runner import CodexRunner, consequential_request  # noqa: E402
 from sebastian.generator import connectivity_test, generate_response, prepare_images  # noqa: E402
 from sebastian.keychain import KeychainError, get_api_key  # noqa: E402
 from sebastian.messages import (  # noqa: E402
     ImageAttachment,
     connect_readonly,
+    datetime_to_mac_time,
     image_attachments,
     matching_outgoing_rowid,
     message_text_hash,
+    message_is_fresh,
     messages_after,
     outgoing_delivery_state,
     participants,
     previous_messages,
 )
 from sebastian.policy import (  # noqa: E402
+    agent_command,
     contains_trigger,
     finalize_response,
     is_loop_response,
@@ -82,6 +86,8 @@ def build_messages_db(path: Path) -> None:
           (1, 1), (2, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7);
         """
     )
+    base_date = datetime_to_mac_time(dt.datetime.now(dt.UTC) - dt.timedelta(seconds=10))
+    conn.execute("UPDATE message SET date = ? + ROWID * 1000000", (base_date,))
     conn.commit()
     conn.close()
 
@@ -123,6 +129,16 @@ class TriggerPolicyTest(unittest.TestCase):
 
     def test_trigger_is_removed_cleanly(self) -> None:
         self.assertEqual(strip_trigger("Hey, @Sebastian! What time?"), "Hey! What time?")
+
+    def test_agent_commands_are_explicit_and_case_insensitive(self) -> None:
+        self.assertEqual(
+            agent_command("@Sebastian Codex: inspect the repository"),
+            ("run", "inspect the repository"),
+        )
+        self.assertEqual(agent_command("@sebastian approve a1b2c3"), ("approve", "A1B2C3"))
+        self.assertEqual(agent_command("@sebastian status"), ("status", ""))
+        self.assertEqual(agent_command("@sebastian cancel"), ("cancel", ""))
+        self.assertIsNone(agent_command("@sebastian explain codex"))
 
     def test_participant_allowlist_applies_to_sender_not_any_group_member(self) -> None:
         config = {
@@ -186,6 +202,15 @@ class MessagesIsolationTest(unittest.TestCase):
             rows = messages_after(conn, 0)
         triggers = [m.rowid for m in rows if should_trigger(text=m.text, is_from_me=m.is_from_me)]
         self.assertEqual(triggers, [3, 4])
+
+    def test_message_freshness_rejects_delayed_sync_and_large_clock_skew(self) -> None:
+        now = dt.datetime.now(dt.UTC)
+        fresh = types.SimpleNamespace(date=datetime_to_mac_time(now - dt.timedelta(seconds=30)))
+        stale = types.SimpleNamespace(date=datetime_to_mac_time(now - dt.timedelta(minutes=10)))
+        future = types.SimpleNamespace(date=datetime_to_mac_time(now + dt.timedelta(minutes=10)))
+        self.assertTrue(message_is_fresh(fresh, 120, now))
+        self.assertFalse(message_is_fresh(stale, 120, now))
+        self.assertFalse(message_is_fresh(future, 120, now))
 
     def test_reaction_quoting_tag_is_not_a_trigger_or_context(self) -> None:
         with connect_readonly(self.path) as conn:
@@ -311,6 +336,35 @@ class StateReliabilityTest(unittest.TestCase):
         self.assertIsNone(persisted.send_started_at)
         reopened.close()
 
+    def test_message_guid_deduplicates_a_reinserted_row(self) -> None:
+        state = StateStore(self.path)
+        first = state.discover_trigger(
+            chat_id=1,
+            message_rowid=10,
+            message_guid_hash="stable-guid-hash",
+            per_conversation_limit=3,
+            now=self.now,
+        )
+        second = state.discover_trigger(
+            chat_id=1,
+            message_rowid=99,
+            message_guid_hash="stable-guid-hash",
+            per_conversation_limit=3,
+            now=self.now,
+        )
+        self.assertEqual((first, second), ("pending", "duplicate"))
+        state.close()
+
+    def test_interrupted_agent_is_never_replayed_after_restart(self) -> None:
+        state = StateStore(self.path)
+        self.discover(state, 1)
+        trigger = state.due_triggers(self.now)[0]
+        state.mark_agent_running(trigger.id)
+        self.assertEqual(state.recover_interrupted_agents(), 1)
+        self.assertEqual(state.due_triggers(self.now), [])
+        self.assertEqual(state.trigger_by_id(trigger.id).status, "agent_interrupted")
+        state.close()
+
     def test_per_conversation_rate_limit_is_atomic(self) -> None:
         state = StateStore(self.path)
         self.assertEqual(self.discover(state, 1, limit=2), "pending")
@@ -357,6 +411,79 @@ class StateReliabilityTest(unittest.TestCase):
         state.prune(7, self.now)
         self.assertIsNone(state.trigger_by_id(trigger.id))
         state.close()
+
+
+class CodexRunnerBoundaryTest(unittest.TestCase):
+    def test_common_consequential_requests_require_approval(self) -> None:
+        for request in (
+            "send an email to Alex",
+            "buy another monitor",
+            "delete the production database",
+            "deploy this to production",
+            "push the branch",
+            "create a new API key",
+        ):
+            self.assertTrue(consequential_request(request), request)
+        self.assertFalse(consequential_request("inspect the tests and explain the failure"))
+
+    def test_prompt_is_stdin_only_and_runner_keeps_sandbox(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            executable = root / "codex"
+            executable.write_text("placeholder", encoding="utf-8")
+            executable.chmod(0o700)
+            captured: dict[str, object] = {}
+
+            class FakeProcess:
+                returncode = 0
+                pid = 12345
+
+                def __init__(self, args: list[str], **kwargs: object) -> None:
+                    captured["args"] = args
+                    captured["env"] = kwargs["env"]
+                    self.args = args
+
+                def communicate(self, value: str, timeout: int) -> tuple[str, str]:
+                    captured["stdin"] = value
+                    captured["timeout"] = timeout
+                    output = Path(self.args[self.args.index("--output-last-message") + 1])
+                    output.write_text("done", encoding="utf-8")
+                    return "", ""
+
+                def poll(self) -> int | None:
+                    return self.returncode
+
+            runner = CodexRunner(
+                {
+                    "model": "test-model",
+                    "reasoning": {"effort": "medium"},
+                    "agent": {
+                        "codex_executable": str(executable),
+                        "workspace": str(root),
+                        "sandbox": "workspace-write",
+                        "timeout_seconds": 60,
+                    },
+                }
+            )
+            secret = "private SMS task body"
+            with (
+                patch.dict(
+                    "sebastian.codex_runner.os.environ",
+                    {"SEBASTIAN_OPENAI_API_KEY": "must-not-leak", "PATH": "/usr/bin"},
+                    clear=True,
+                ),
+                patch("sebastian.codex_runner.subprocess.Popen", FakeProcess),
+            ):
+                result = runner.run(secret)
+            args = captured["args"]
+            self.assertEqual(result.status, "completed")
+            self.assertNotIn(secret, " ".join(args))
+            self.assertIn(secret, captured["stdin"])
+            self.assertIn("--ephemeral", args)
+            self.assertIn("workspace-write", args)
+            self.assertNotIn("--dangerously-bypass-approvals-and-sandbox", args)
+            self.assertNotIn("SEBASTIAN_OPENAI_API_KEY", captured["env"])
+            self.assertTrue(captured["env"]["PATH"].startswith(str(executable.parent)))
 
 
 class SenderPrivacyTest(unittest.TestCase):
@@ -627,6 +754,44 @@ class ServicePrivacyTest(unittest.TestCase):
                 rowids = [trigger.message_rowid for trigger in service.state.due_triggers()]
                 service.close()
             self.assertEqual(rowids, [3])
+
+    def test_agent_command_is_owner_only_and_fresh(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            db_path = root / "chat.db"
+            build_messages_db(db_path)
+            now = dt.datetime.now(dt.UTC)
+            conn = sqlite3.connect(db_path)
+            conn.executemany(
+                """
+                INSERT INTO message(ROWID,guid,date,is_from_me,handle_id,text)
+                VALUES (?,?,?,?,?,?)
+                """,
+                [
+                    (8, "incoming-agent", datetime_to_mac_time(now), 0, 1, "@sebastian codex: inspect"),
+                    (9, "stale-owner-agent", datetime_to_mac_time(now - dt.timedelta(minutes=10)), 1, 1, "@sebastian codex: inspect"),
+                    (10, "fresh-owner-agent", datetime_to_mac_time(now), 1, 1, "@sebastian codex: inspect"),
+                ],
+            )
+            conn.executemany("INSERT INTO chat_message_join VALUES (1,?)", [(8,), (9,), (10,)])
+            conn.commit()
+            conn.close()
+            config = self.service_config(db_path)
+            config["agent"] = {
+                "enabled": True,
+                "max_message_age_seconds": 120,
+                "workspace": str(root),
+            }
+            with (
+                patch.dict("os.environ", {"SEBASTIAN_HOME": str(root / "home")}),
+                patch("sebastian.service.DEFAULT_LOG_DIR", root / "logs"),
+            ):
+                service = SebastianService(config)
+                service.state.set_meta("last_seen_rowid", "7")
+                service.discover()
+                rowids = [trigger.message_rowid for trigger in service.state.due_triggers()]
+                service.close()
+            self.assertEqual(rowids, [10])
 
     def test_kill_switch_prevents_polling(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
