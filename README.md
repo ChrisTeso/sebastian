@@ -1,25 +1,76 @@
 # Sebastian
 
-Chris Teso's local personal agent for the existing Sebastian Slack app and Apple Messages on this Mac. Rebuilt from scratch, using one persistent native Codex App Server for reasoning and authorized tools. Git history is preserved. OpenClaw and the recovery archive are absent from the execution path.
+Sebastian is Chris Teso's personal AI assistant for Slack and Apple Messages. It runs locally on macOS, answers questions, uses authorized personal tools, and generates and sends images.
 
-S1–S7 independently passed; subsequent scoped changes have their own verification records. Current installation and live delivery evidence are recorded in [progress](docs/progress.md) and [verification reports](docs/evidence/).
+The current implementation is on [`main`](https://github.com/ChrisTeso/sebastian/tree/main).
 
-## Operation
+## What it does
 
-Service installation, status, start and stop commands are documented in [service operation](docs/service.md). Installation is private to this Mac. Credentials and local state live under ignored `.private`; native Codex retains separate conversation transcripts. The launcher must set umask077 before starting the runtime.
+- Responds to mentions and follow-up replies in Slack and Messages.
+- Keeps replies in the originating chat or Slack thread under the configured audience policy.
+- Reads relevant conversation context and supported image attachments.
+- Generates and delivers images through Slack and Messages.
+- Uses a lightweight model for simple replies and delegates harder requests to more capable models.
+- Identifies the responding model and signs messages as **– Sebastian, Chris's AI Assistant**.
 
-Owner Slack DMs trigger automatically. Other visible Slack conversations trigger on `@sebastian`, the native bot mention, or a reply in a thread where Sebastian has already posted. Slack group DMs are unavailable with the current scopes. Messages recognizes case-insensitive `@sebastian`; verified owner self-chats also trigger automatically. Native Messages replies to a confirmed Sebastian post also trigger without a mention. Ordinary messages Chris sends to other people require a mention. Plain SMS without native reply metadata still needs a mention. Replies stay in the originating chat/thread, including owner group requests. Other senders have conversation-only access unless Chris configures a named, curated Toolbelt read grant.
+## Starting a conversation
 
-## Architecture and verification
+| Channel | What activates Sebastian |
+|---|---|
+| Slack | A direct message from Chris, an `@Sebastian` mention, or a reply in a thread where Sebastian has already posted. |
+| Apple Messages | An `@sebastian` mention, a native reply to a confirmed Sebastian message, or a message in Chris's configured private self-chat. |
 
-See [architecture and permissions](docs/architecture.md), [channel setup](docs/channels.md), [runtime decision](docs/runtime-decision.md), [reliability](docs/reliability.md), [privacy review](docs/s6-privacy.md), [response measurements](docs/performance.md), and [recovery evidence](docs/recovery-tests.md).
+Messages replies come from Chris's existing account. Sebastian does not have a separate phone number or Apple Account. Plain SMS without native reply metadata still requires a mention outside the configured self-chat. Slack group DMs are unavailable with the current installation's scopes.
+
+Each request retrieves up to ten previous eligible messages, capped at 16,000 characters. Slack context stays within the relevant thread or preceding top-level channel messages; Messages context stays within the same chat. Persistent model sessions may retain earlier interactions beyond that freshly retrieved context.
+
+## Model routing
+
+| Model | Role |
+|---|---|
+| Luna (`gpt-5.6-luna`) | Answers simple self-contained requests without tools, or selects an escalation. |
+| Sol (`gpt-5.6-sol`) | Handles routine research and tool requests. |
+| Astra (`gpt-6-astra`) | Handles complex analysis, coding, consequential decisions, and uncertain routing. |
+
+Self-contained owner image-generation requests can go directly to an isolated Sol runtime. Separate text and image workers let an ordinary request in another conversation proceed while an image is being generated. Requests within the same conversation and thread remain ordered.
+
+Routing never grants permissions. The host authenticates the sender, selects the allowed tools, separates sessions, and chooses the reply destination. Other participants do not inherit Chris's personal access by mentioning Sebastian or replying to him.
+
+## Local operation
+
+The rebuilt service uses persistent local Codex App Server sessions and a native macOS launcher. OpenClaw is not part of the execution path. This repository documents a personal installation, not a one-command hosted service.
+
+From the configured checkout and virtual environment:
 
 ```sh
-.venv/bin/python -m unittest discover -s tests -v
-.venv/bin/python scripts/check_privacy.py
-.venv/bin/python scripts/probe_channels.py --socket
+.venv/bin/python scripts/service.py status
+.venv/bin/python scripts/service.py start
+.venv/bin/python scripts/service.py stop
 ```
 
-The channel probe is read-only and closes its connection. No probe above sends messages. Native synthetic checks are separately documented; physical sleep testing requires owner coordination. Independent warm no-tool sample:20 requests, median3.733s and p954.991s, with fixture transport and actual native reasoning. Live delivery is a separate gate.
+The Mac must be logged in, awake, and online. Initial setup requires private installation configuration, Slack authorization, and the appropriate macOS permissions. See [service setup and operation](https://github.com/ChrisTeso/sebastian/blob/main/docs/service.md).
 
-The previous26 top-level repository entries were removed after an independently verified recovery archive was created at `/Users/teso/.codex/recovery/sebastian-20260912T162029Z`. That private directory contains `repository.tar.gz`, hashes, original service plists and rollback instructions. Restore only as an explicit rollback with the new service stopped; never run old and new consumers together. The local Git history remains preserved. Public releases use a current-code snapshot based on the existing public repository history; private local ancestry is not published.
+## Privacy and reliability
+
+- The Apple Messages database is opened read-only.
+- Credentials, installation configuration, and runtime state are excluded from Git under `.private`.
+- Sebastian's ledger stores message references, delivery receipts, and fingerprints rather than raw conversation bodies or images.
+- Native Codex conversation transcripts are retained separately; local execution does not mean zero retention or offline inference.
+- Duplicate and self-echo detection prevent replies from triggering themselves. Interrupted actions are not automatically replayed.
+
+## Verification
+
+The current rebuild passes **174 automated tests** and has independent review records. Live owner-only tests have verified Slack and Messages text/image delivery and model routing. The newer reply-without-mention behavior has automated and independent verification; live inbound confirmation remains pending.
+
+```sh
+.venv/bin/python -m unittest discover -s tests
+```
+
+Installation-specific read-only checks, which require private local configuration:
+
+```sh
+.venv/bin/python scripts/check_privacy.py
+.venv/bin/python scripts/probe_channels.py
+```
+
+See [verification history](https://github.com/ChrisTeso/sebastian/blob/main/docs/progress.md), [review evidence](https://github.com/ChrisTeso/sebastian/tree/main/docs/evidence), [model routing](https://github.com/ChrisTeso/sebastian/blob/main/docs/model-routing.md), and [permission boundaries](https://github.com/ChrisTeso/sebastian/blob/main/docs/permissions.md).
