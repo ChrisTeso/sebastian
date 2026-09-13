@@ -1,0 +1,41 @@
+# Fresh Apple Messages channel
+
+`sebastian/messages.py` opens the configured database by SQLite URI with `mode=ro` and `PRAGMA query_only=ON`. It reads current schema metadata instead of assuming every optional column exists. The local `~/Library/Messages/chat.db` schema was inspected read-only on 2026-09-12, with column names/types only in output. No conversation bodies were fetched for that inspection. This covers synchronized iMessage/SMS/RCS records through their actual chat GUID; it does not provision a carrier service.
+
+## Dependency and verification
+
+Install `pytypedstream==0.1.0` into the selected service Python environment. The [upstream project](https://github.com/dgelessus/python-typedstream) supplies a pure Python archive reader; no Objective-C object instantiation occurs when processing untrusted archives. Only the root string or NSAttributedString's first NSString content field is accepted. Attribute dictionaries are not mined for text. Oversize, malformed, and unsupported blobs produce a sanitized decoding failure; the adapter does not guess a message from arbitrary bytes. Plain `text` is preferred when available.
+
+Reproduce the isolated fixture check:
+
+```sh
+python3 -m venv /tmp/sebastian-s4-messages-venv
+/tmp/sebastian-s4-messages-venv/bin/pip install pytypedstream==0.1.0
+/tmp/sebastian-s4-messages-venv/bin/python -m unittest tests.test_messages -v
+```
+
+Result: 16 tests PASS, covering first-start highwater/no backlog, subsequent owner DMs, group and nonowner mentions, impersonation, schema variation failing owner identity closed, synthetic native attributedBody Unicode decoding, attachment references, bounded history, read-only writes rejected, self/duplicate/reaction filtering, seconds/nanoseconds, shared-chat batch boundaries, and sender construction/error sanitization. The synthetic archive was freshly generated using Foundation NSArchiver and contains only `@SeBaStIaN café 🦊`. No live send was performed; the send fixture injects an inert runner.
+
+## Trusted setup and ingress contract
+
+Construct `OwnerMetadata(account_id, sender_id, account_pairs, chat_logins, owner_private_chat_ids)` exclusively in trusted operator setup. The immutable sets contain exact verified `(message.account, message.account_guid)` pairs and `chat.account_login` values. Verification must compare them to the signed-in owner's actual account metadata independently of the request text. `is_from_me=1` alone cannot establish owner authority. Missing/mismatched metadata yields an unverified sender. The provider account and owner sender IDs must match the trusted S3 registry/policy configuration.
+
+`MessagesAdapter(path, owner, signer, highwater=None, history_limit=10, is_self_reply=callback)` opens the database read-only. The first startup captures MAX(message.ROWID) without dispatching backlog. `poll(limit=100)` returns signed S3 envelopes and advances its in-memory `highwater`. Stable event GUID and exact chat GUID form duplicate keys; absent event GUID falls back to the database row ID. History is the preceding 0–10 records within the same conversation. Attachment references contain opaque attachment GUIDs, MIME types, and sizes, never file contents or paths. All bodies remain ephemeral and untrusted.
+
+Verified owner direct messages trigger automatically only inside the explicit `owner_private_chat_ids` allowlist of verified self/agent chats. The default empty allowlist disables automatic direct-message triggers. Ordinary outgoing texts to third parties never trigger automatically. All other chats, groups, unknown chat styles, and other senders require case-insensitive `@sebastian`. Chat style 45 denotes direct; participant count above one also forces group classification. System/service/reaction records are not triggers. Native Messages reply threads are intentionally represented as their containing chat (`thread_id=None`), preserving the approved same-chat audience. Same-chat owner-group replies require the S3 installation's `owner_group_replies=true` policy configuration.
+
+Before live activation the orchestrator must connect `is_self_reply(Event)` to its metadata-only delivery ledger. Compare exact returned/observed delivery GUID when available, and narrowly scoped pending outgoing fingerprints for sends whose receipt is not yet observable. Never filter all `is_from_me` records: those are also legitimate owner requests. The callback is invoked only for outgoing records. S4 provides the callback boundary and fixtures; S5 owns durable receipt/fingerprint persistence, crash reconciliation and retries. In-memory dedupe is bounded and does not claim restart durability. The caller must persist the cursor with accepted queue metadata. Malformed or unsupported records are skipped individually in ingress and history; `invalid_record_count` exposes only the number of invalid decode/validation encounters (a record encountered in both paths can increment twice). No exception text or body is retained. Valid later events progress the cursor and repeated polls do not replay the skipped record. Reaction/system records are filtered before decoding in both paths. History scans at most 100 preceding exact-chat rows to collect up to ten usable records. Database errors and missing dependencies propagate without advancing the cursor; they are not classified as malformed content.
+
+## Delivery boundary
+
+The native Messages plugin offers chat-GUID reads/sends but requires the interactive approval/edit interface for sends. It does not provide the persistent listener's authenticated database event fields. The gap filler uses the system Messages app's AppleScript `chat id` with fixed source and two argv values (exact chat GUID and body), never source interpolation, display names, or guessed recipients. `MessagesSender.command(destination,text)` is inert and supports review. `send()` runs the command only when explicitly invoked by the trusted orchestrator. It sends using the Mac's signed-in Messages account; account verification and live receipt proof remain separate installation gates. There is no claim that Messages can send under an independent Sebastian identity.
+
+The sender refuses a different provider account, non-Messages destinations, and unsupported thread IDs. Error and timeout messages exclude argv/stdout/stderr. A nonzero exit or timeout is uncertain delivery: reconcile before retry. This transport cannot prove exactly-once delivery or return a trustworthy delivery GUID directly. No live transport correctness, owner-inbound, or automatic-service evidence is claimed by these fixtures.
+
+V4 repair fixtures additionally cover poisoned ingress followed by valid input, no replay after cursor progress, malformed reactions in history, valid history backfill with exact-chat limits, database-error propagation, and exact frozen relay account/login/GUID authentication (including incoming records denied owner authority). Relay aliases must be independently verified during trusted setup; the adapter never learns new owner metadata from incoming records.
+
+## Live self-chat mirror repair
+Messages may store separate outgoing and incoming records for a text sent to oneself. In a configured verified private self-chat, an incoming record whose sender exactly matches a frozen owner alias (after removing only the native E:/P: prefix) is ignored at ingress. Only the verified outgoing copy can trigger owner work. Incoming records never gain owner authority; other senders and group requests keep their existing mention/permission rules. A fixture reproduces both copies plus a genuine other sender. Live evidence is recorded in S7.
+
+## Replies to Sebastian
+Native replies with `thread_originator_guid` trigger without a mention when the referenced earlier message belongs to the exact same chat, has verified local owner metadata, and its GUID matches a confirmed Sebastian delivery receipt. Signature text and ordinary Chris messages do not establish bot authorship. Both ingress and queue rehydration enforce this check. Replies retain the current sender's authority and the containing chat audience. Plain SMS without native reply metadata cannot identify a referenced post and still requires a mention outside Chris's configured private self-chat.

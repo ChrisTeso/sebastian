@@ -1,0 +1,16 @@
+{
+  "docs/permissions.md": "2b41b3aeb3e95604fcbbb82d2b5c5778ba58ce963627a256d84b19599be4515b",
+  "scripts/probe_confinement.py": "61e47fa0473143cf30351369f181b48bc382a5edda74ecbde24bf7fb0a0d076b",
+  "scripts/probe_s3_service.py": "9c6fc2fb74792609c8ed31249c332e364b69b05eaf1a0573cf4f34fa1a41e5f4",
+  "sebastian/__init__.py": "92b532840a499bf1143a18cc2c7d59c67094dd57d7c10cc3616fbd469d223b3b",
+  "sebastian/contracts.py": "82479458c7921ae7fec580e54b33d58062116b354972917d64949d211e05b99d",
+  "sebastian/policy.py": "dd2f17730ee95269ecbfa98de943ba5b204cc66813d85d859cee4eb0ea7fb3f9",
+  "sebastian/runtime.py": "69853ced826297b53266e2d3b871adfd6aa27964c3a146297bada4261b17aeea",
+  "sebastian/runtime_policy.py": "2d3dc97636d790c6d1cbcdbefb8ebb99ebcb64eeb613fc4f6198c84d254d83dc",
+  "sebastian/service.py": "e6a972e9ca3705be71cf660e6c3f099f0eb4a19727a52637fae415e508f8758b",
+  "sebastian/toolbelt_reader.py": "d77f6773bebc43ae5c9e22352f817f878126c40be1c0cb877c0ca92c201055fc",
+  "tests/test_policy.py": "459e55d1069cd868a203d37d2e7d5d049611e7cd54dd5c14a0466f71f9d79b17",
+  "tests/test_runtime.py": "633d9bc67052725474f3275d7737ddff5d373ea665e6545383bfe5b512f11608",
+  "tests/test_runtime_policy.py": "abfc007b8cc6c043cc842479e53fb4acdde921a23044ceeb7ecf37e102207407",
+  "tests/test_service.py": "6053ccb87f15d29864173beb41d58d3ecdb813ce944919312e6a0b40b2626a89"
+}

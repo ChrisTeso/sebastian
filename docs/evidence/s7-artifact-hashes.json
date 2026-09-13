@@ -1,0 +1,12 @@
+{
+  "sebastian/daemon.py": "b1b283089c502e1a66599a8440432e9a788412e56fd0f21118755c1cef69577a",
+  "scripts/service.py": "707207bb5e758f9f0656bc865b3d15b1a87b3226ec8f6e98d3b0a958741e773b",
+  "scripts/check_live.py": "5e145349799102d4aaede04bc3df0e714239ac3bc772874219c4e497123598af",
+  "native/Launcher.swift": "9b0df285d9197e9cf4ae1d92722efdb9af28add76feff16e745268006845670a",
+  "tests/test_daemon.py": "0cbb9829b07e5e05352c58983f1362f24b63c10f74f61fd1dc9f033e8de5ab8b",
+  "README.md": "88c16de47c0507f0663fa71f5462dea6c67a61c3c4ad19fd18e8469879cc8bf0",
+  "docs/service.md": "bc0c7dd01b6fc0cd09c1b2d39202c8ccc42f80df3f5ad6299ceccc9aa904e77f",
+  "docs/architecture.md": "f875bc1f41393b86d49f0c0c043ee091f84cec89dfa0db22ce6ed3b6dd16d902",
+  "docs/live-verification.md": "dbe02374fcc92fb3e148b9a3b3509df0eaed224624ff1c4f002145a47e484ce8",
+  "AGENTS.md": "e96d59450e20681986fcd6930d959070d6e702368b2999957a19aed73f53dcf7"
+}

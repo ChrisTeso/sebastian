@@ -1,0 +1,38 @@
+{
+  "tests_passed": 158,
+  "independent_review": "PASS",
+  "live_concurrency": {
+    "normal_reply_s": 8.068059921264648,
+    "normal_finished_before_image": true,
+    "normal_finished_earlier_s": 14.754191160202026,
+    "image_sent": true,
+    "image_attachment_count": 1
+  },
+  "final_direct_messages": {
+    "status": "complete",
+    "owner_verified": true,
+    "correct": true,
+    "elapsed_s": 5.523000001907349,
+    "receipt_confirmed": true
+  },
+  "limitations": [
+    "Point observations, not a new percentile benchmark.",
+    "Same conversation/thread remains ordered.",
+    "Mixed image/actions and other desktop/tool work use the normal serialized worker.",
+    "Slack connector adds a footer; those synthetic image requests conservatively remain on the normal lane."
+  ],
+  "sha256": {
+    "sebastian/routing.py": "c6fb20f2daed812538512899e8645ce355139849592108c066a26655279d0b2e",
+    "sebastian/routed_runtime.py": "35e212ba5747937bcd37fa1e53c20e56067926d16ab5027cd41168c95c5eb129",
+    "sebastian/session_runtime.py": "163650288475fea3433ea453fdf4f5f5c13d7ffe7f284bd52739101e8cc21742",
+    "sebastian/engine.py": "463b534a89e00aece1d66cb8b0ba34bde8e244a667a24a4fdc087167a22eee28",
+    "sebastian/ledger.py": "169a7cd5f47459fcc4540960252f1291b7155a0e9ab162251503fe167d606fcc",
+    "sebastian/daemon.py": "3cbef7e49104f10c5e138a679c2d732c2719872b99de5d0fe3295c1c2332c648",
+    "sebastian/images.py": "5f6650e8c3b801376e2775159790ea5e250b246e7154c5e3fa77439c41a01306",
+    "tests/test_concurrent_ledger.py": "afd037612e85e4b65337a968c7ef0a16378d1e7b550272404b3424945dafc096",
+    "tests/test_routed_runtime.py": "1c0366389dd6213b31b1c5ab056b0adce363cf5783b27133b66b9d25eb7345a2",
+    "tests/test_engine_concurrency.py": "da803764183446bdc2f3165240de212e5c44b2e0b8703d40605e6a1a1bc22c09",
+    "tests/test_images_formatting.py": "306dd27d7e8111b55c25d891addf9c1873ab168267cc0ae7e6bfcc01a2c6ea20",
+    "tests/test_daemon.py": "27dd8d70a1493608d20a4f5b9e6d3870bf4529203fc59013d9d9cb78e6949d17"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "docs/channels.md": "0a73138a7030faab76f7689c6833bf0879590800af10867eb866752103cd0ba3",
+  "docs/messages.md": "0e6a600207fb173ff4bc6a44b2a9d0fcc5918e6471d628ebdf09fa8dacbc546a",
+  "docs/slack.md": "8159a1a725b8aa4282bc6f2357182660565d5b67ec69192d7d0723835b817850",
+  "plugins/sebastian-channels/.codex-plugin/plugin.json": "bc79cc7c453e5584a821266c7e9e4a0d5ccc4e0faeee9a2724a5124853033577",
+  "plugins/sebastian-channels/skills/channel-context/SKILL.md": "57d61a8735f47d64020a069a44edd86ebd49d4cbc58b66b716b249984c4b1307",
+  "requirements.txt": "010625d8a271c66ab51d82ce3224b4e71dcd57e8a68150066e5eff33b431233e",
+  "scripts/probe_channels.py": "3b78d4f0f77301c16086f6c3fa9d9e0cdac10f4f48f0e950e80147db7f97c94c",
+  "sebastian/config.py": "168b1285e602c233f3b95779e3aec1b6e0b34873e240bac129ea1d0eb97084d8",
+  "sebastian/messages.py": "61998b0ef3087fcd999f34fbb3e24d629ca0ad53b5bdc9f594f711653dec3efc",
+  "sebastian/slack.py": "44f2e9e446456ad22cf9f0692a9efc128f49dcad1444b7a2976564157de9f571",
+  "tests/test_config.py": "22a6f3f03fc29f5802acaaf1755712c8cc07863760f1cb7b3c7cbfd51a46a92a",
+  "tests/test_messages.py": "466af0b57b06b8c39a1e2eebfeddc0ef9c27ac7471f046992f49a26a8d06e0c9",
+  "tests/test_slack.py": "9942635f6f420eb984f5bab5a67b3758137e79c90453f58b0022d0a02b1f8226"
+}

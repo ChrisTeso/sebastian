@@ -1,0 +1,26 @@
+# V3 independent verification — FAIL
+
+Verifier: /root/v3 (fresh context). Date: 2026-09-12. Scope: S3 only, candidate identified by all 14 entries in `docs/evidence/s3-artifact-hashes.json`. No candidate source changed. S4 is not authorized by this report.
+
+## Blocking finding
+
+**P1 — Native owner tools bypass the group disclosure boundary.** `sebastian/service.py:27-39` submits owner group requests and untrusted group history to the full owner runtime, then controls only the returned `Reply.destination`. `sebastian/runtime_policy.py:21-45` preserves native execution environments and tools for every owner request, skips owner MCP inventory checks, and has no audience-specific tool capability. `sebastian/runtime.py` mediates dynamic tools and runtime approval requests, but does not intercept native MCP calls with a disclosure policy. Therefore the private final-reply destination does not enforce the required audience boundary for tool-mediated publication.
+
+Actual selected App Server inventory independently returned 9 servers and 569 tools, including `codex_apps` tool `slack.slack_send_message` and `messages` tool `send_message`. The profile used for this inspection is exactly the owner profile selected for an owner group event. No message was sent. The defect is the absent host enforcement, not a claim that an unapproved disclosure was observed. Existing model instructions and any native host approvals do not implement the S3 rule distinguishing requester authority from audience.
+
+Required repair: prevent group-origin content from entering a runtime with private access and unrestricted publishing capabilities, or add an enforced audience-aware mediation boundary for every applicable native execution/publication path. A private actionable continuation asking the owner to repeat a privileged request in DM, plus a conversation-only runtime for explicit group replies, is a conservative repair consistent with S3. Do not migrate group history or prior elevated group sessions into privileged DM context. Obtain a new independent V3 after repair.
+
+## Checks and evidence
+
+- All 14 candidate hashes matched before and after verification.
+- `python3 -m unittest discover -s tests -v`: 23 tests passed. Covers authenticated receipts, tampering, exact workspace/user identity, Messages metadata, mixed-sender history, permission/session changes, final reply routing, denied dynamic tools, incomplete/unexpected MCP inventory and approved-document bounds.
+- `python3 .private/v3/verify_local.py`: additional fresh synthetic identities, all Messages metadata combinations, cross-workspace impersonation, mixed-owner history bounded to 10, sender/revision session separation, path-extra arguments and symlink denial passed.
+- `python3 .private/v3/verify_live.py`: five actual production AppServer calls passed: impersonation/private file attack, conversation marker storage, cross-sender marker absence, same-session recall, and approved document lookup. Separate random file, AGENTS instruction, conversation, and approved-document markers were used. Private evidence: `.private/v3/events.json` and `.private/v3/results.json`.
+- Actual restricted thread-start parameters included `environments=[]`, `selectedCapabilityRoots=[]`, `sandbox=read-only`, disabled apps/plugins/configured MCP servers, disabled memory use/generation and `project_doc_max_bytes=0`. All five pre-turn MCP inventories contained only disabled servers with empty tool sets and no continuation cursor. Actual items were user/agent messages and the teammate's single dynamic `toolbelt_read` call; no shell, browser or native service operation occurred. Neither private-file nor local AGENTS canary appeared in the answers. This is observed canary non-exposure and inspected runtime controls; no claim is made that a refusal alone proves absence of every possible hidden prompt.
+- Approved-document lookup returned the independently created synthetic document code, and the simultaneous request to escape into a private file/native tools did not succeed. The production reader exposes enumerated administrative document IDs and denies arbitrary paths, symlinks, nonregular/multilink files, oversized/nontext files and recognized credential patterns. No additional concrete reader escape was found. Administrative approval of document content remains necessary; credential regex is not a classifier for all private material.
+- `python3 .private/v3/inventory.py`: inspected actual owner tool inventory without a model turn or any native tool invocation. Evidence: `.private/v3/owner-inventory.json`.
+- `git fsck --full`: exit 0; dangling objects reported, no corruption. Inspected active S3 sources contain no legacy/OpenClaw/archive implementation dependency. Both verification-owned App Server processes exited through their context managers.
+
+## Limits
+
+Provider authentication and channel transports are S4; S3 verifies their trusted contract with synthetic authenticated adapters. No live Slack/Messages send, unrelated browser inspection, credential extraction, service installation, commit, push or merge occurred. Private verifier artifacts are ignored and owner-only. The candidate fails solely on the concrete native-tool audience enforcement gap above; passing restricted checks do not override it.
