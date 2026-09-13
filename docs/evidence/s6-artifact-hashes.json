@@ -1,0 +1,11 @@
+{
+  "scripts/benchmark_replies.py": "15c3aa08a66427e0016148c41e10ba688508c7b0b56b5234fd7abb62a0422c3a",
+  "scripts/check_privacy.py": "694e4153fa51cbaa1aaf42a4bc0078494357d65ffb9cfc4298feb01e446df770",
+  "scripts/probe_recovery.py": "a073e7db4d6ea8ab2c340ce5da64be2d9f2f6f4fe15e39063639091b8e2d1ec5",
+  "tests/test_privacy.py": "c7ceb75d9eb53224ae432cba693502bfdf7b274e4b498709bc2548a9949fa860",
+  "tests/test_recovery.py": "d649513d9c709050d825a16d484c6ddcc77860a6005b060f5466a8178ccf914e",
+  "docs/performance.md": "3f32180715183367bd2f994cde69b3c821f185ed373c34e19930ae7fba084769",
+  "docs/s6-privacy.md": "feb02b54b0f3fbbccc8efdabd7dd2f2257f89a336e5f40fe1837f8b39a15670c",
+  "docs/recovery-tests.md": "2becdf61eb34a21e4fbbd7c2d5394fbf077f682d9dd852ca86e079f1703069fe",
+  "scripts/probe_sleep_wake.py": "2cd0400518f1bbf106bc0da169f5fa382acae595aa9db0f142e81a77eb313b41"
+}

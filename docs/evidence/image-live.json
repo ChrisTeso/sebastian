@@ -1,0 +1,56 @@
+{
+  "checked_at": 1789255472.0041301,
+  "fixture_tests": 132,
+  "slack": {
+    "completed": true,
+    "matching_request_jobs": 1,
+    "images": [
+      {
+        "same_destination": true,
+        "image": true,
+        "bytes": 963853,
+        "bot_owned": true,
+        "shared_in_original_thread": true
+      }
+    ],
+    "delivery_states": [
+      "confirmed"
+    ]
+  },
+  "messages": {
+    "completed": true,
+    "matching_request_jobs": 1,
+    "images": [
+      {
+        "same_destination": true,
+        "owner_verified": true,
+        "image": true,
+        "attachment_copied": true,
+        "transfer_states": [
+          5
+        ],
+        "service": "iMessage",
+        "message_error": 0,
+        "is_sent": 1
+      }
+    ],
+    "delivery_states": [
+      "confirmed"
+    ]
+  },
+  "unexpected_messages_jobs": 0,
+  "sha256": {
+    "sebastian/outbound.py": "1512e3905030241bc6aee5d1fcf1bd62e307eee3cb8156f70e9e39b8012e9503",
+    "sebastian/runtime.py": "4b4d7f724673e74b8b369547ee443ad5f20b15178216c5b0871dd697bd4a1ca8",
+    "sebastian/service.py": "817df55943647bb20c695f4636411accbecab6e36ffcf01e1b3e5a881815f848",
+    "sebastian/session_runtime.py": "9a85472804aabd75ba7b8c0087fda4d557af540e977fc2dfa5e6e1935f12e39e",
+    "sebastian/engine.py": "20e47791d667372af2723378e3aca60b65f7757424227e095f510d16b08c41f1",
+    "sebastian/ledger.py": "83146ff408a3a72b72594412e35d322c4d037f0aa1aa1a5b452b85be3065f6d4",
+    "sebastian/slack.py": "30009396b59df8bcda81dcedbb3cefb3ca154663be70d4e422b8294a57acad60",
+    "sebastian/messages.py": "6788e94b379c3c821a6cc2bcbad0448c8b2b4206119c4b00e70ffff3e14ad888",
+    "tests/test_runtime.py": "691b7a6f032898283b65694bdc4d60f13d075c1f19f57b69503a0d133bc75905",
+    "tests/test_outbound.py": "2d5d03c2e9c0dd95fc1a80b4fc79ecf7fceb544cf95eaf32ddb23e4d394415c3",
+    "tests/test_image_transports.py": "3d1e08c31802b52dcf6d13a922de5dc30b45059529edac43c524155aceee1394",
+    "scripts/check_image_delivery.py": "071217bec6ef4cfb25b9b104fd04976da4aa5e40db796f526418a645ddea73fb"
+  }
+}

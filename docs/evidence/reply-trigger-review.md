@@ -1,0 +1,11 @@
+# Reply trigger independent review
+
+Result: PASS (2026-09-13). Scope: Slack and Messages reply triggers; independent fresh-context review using risk-review. No implementation changes or live delivery performed.
+
+- Slack: ingress queues thread candidates as metadata only. Worker fetch revalidates provider event and exact thread, then requires an earlier post with both configured bot user and bot ID. Thread roots and `bot_message` history are supported. Unrelated threads, foreign bot identity, future posts, bot echoes and unsupported inbound subtypes are rejected.
+- Messages: both poll and worker fetch use the same native-parent check. It requires one earlier parent in the exact chat, verified local outgoing account metadata, and an exact confirmed ledger receipt scoped by channel/account/chat/thread. Ordinary signed-looking owner messages, incoming parents, missing metadata/receipt, wrong chats and reactions fail closed. Parent lookup is independent of the ten-message history limit.
+- Permissions remain derived from the new event sender. Parent identity does not grant owner authority. Existing private audience and session policy remains intact. Messages opens SQLite read-only; durable queue and delivery records retain references/fingerprints rather than raw text.
+
+Verification: `.venv/bin/python -m unittest discover -s tests` passed all 174 tests after the final Slack subtype adjustment (1.831 seconds). Focused tests reviewed: test_slack, test_messages, test_sources and test_ledger. Additional independent temporary-fixture check exercised real Sources.poll_messages -> Ledger -> Sources.fetch with a confirmed Messages receipt: accepted an unmentioned nonowner reply, retained nonowner identity, rejected rehydration after native parent metadata was removed, and confirmed the queue database omitted the synthetic request body. Initial harness claim attempts were corrected because the seed job remained running in the same conversation; this was fixture sequencing, not an implementation defect.
+
+No actionable findings. Live inbound native-reply behavior remains unobserved in this review; no service restart, provider mutation or private message content access was performed.

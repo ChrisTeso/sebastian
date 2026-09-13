@@ -1,0 +1,23 @@
+# Architecture and installed dependencies
+
+A per-user LaunchAgent supervises the fresh `Sebastian Native.app` launcher, which hosts the Python daemon under its own macOS privacy identity. Slack Socket Mode and a read-only Messages database poller supply authenticated event metadata to a private SQLite queue. One worker rehydrates bounded exact-conversation context, applies requester/audience policy, and calls a persistent local Codex App Server. Native final output returns to the host, which formats and delivers it as the Sebastian Slack bot or through the exact Messages chat. Replies, internal progress and credentials are not stored in the queue.
+
+The runtime is `/Applications/ChatGPT.app/Contents/Resources/codex`, version0.154.0-alpha.6.2, using existing managed ChatGPT authentication. It shares account usage limits and requires the desktop host, account connections and OS permissions to remain available. There is no second reasoning runtime, per-message visible Codex task, Agents executor dependency, OpenClaw dependency or archived-code import. The restricted Agents API key created during selection remains unused in an ignored owner-only file.
+
+## Native plugins and channel package
+
+Owner execution inherits the existing Codex plugin/MCP configuration and actual host approvals. The working computer/browser surface is `unified-computer-use@openai-bundled`, with the existing Chrome profile. Configured native bundles also include Chrome, browser, computer-use, Messages, codex-app-tools, Google Calendar, Gmail, Google Drive, Figma, Render, Vercel, documents, spreadsheets, presentations, PDF, template-creator, sites and visualize. Configured enabled MCP server names are openaiDeveloperDocs, tradingview, robinhood-trading and node_repl; the separate computer-use MCP entry is disabled. This is a configuration inventory on September12, not a claim that every integration is authenticated or independently proven. S2 directly proved authenticated GitHub service reading and computer/browser control; native service availability can change with account state.
+
+`plugins/sebastian-channels` is a validated local guidance package. It has no listener, secrets or authority and is not installed in a marketplace. Equivalent final-delivery guidance is supplied by the orchestration runtime. Channel ingress and final sends use the small host adapters because native connector identity/trigger metadata does not satisfy those transport contracts. No additional plugin installation is required to start those adapters. Runtime Python dependencies are pinned in `requirements.txt` and installed in `.venv`.
+
+## Identity and audience
+
+The private installation file freezes exact Slack workspace/user/app/bot IDs and verified Messages owner metadata. Messages authority requires `is_from_me` plus the configured account metadata; names or text cannot confer owner access. The installation explicitly enables owner_group_replies: Chris's authenticated group requests retain personal tools and answer that group/thread. No private-chat continuation is required. Other users remain restricted; named Toolbelt grants require a separate owner-only curated document mapping, and none is currently configured.
+
+Nonowner threads have no execution environments or capability roots, disable native apps/plugins/MCP and personal memory, and fail closed if native tools unexpectedly appear. Curated readers reject arbitrary paths. Sessions bind channel/account/conversation/thread/sender and the complete permission profile. This is enforced native per-thread isolation under Chris's OS account, not a separate OS account. Context and images remain untrusted input. See permissions.md for boundaries and tests.
+
+## Availability and retention
+
+The Mac must be awake and connected for prompt replies. Current AC settings disable automatic idle sleep; battery idle sleep is configured for one minute. A real forced sleep/wake cycle passed S6, with persisted native conversation recovery and refusal of an expired queued fixture command. This is not a guarantee that in-flight external actions roll back or survive sleep. Stale/interrupted work yields an actionable failure instead of replaying computer actions. Network retries and uncertain delivery are bounded; Messages is not claimed exactly-once.
+
+The service launcher sets umask077. Config, credentials, queue, status and session metadata are private. Native Codex separately retains conversation/tool transcripts, potentially including images; new service transcripts must be0600. No zero-retention claim is made. Native host and provider retention remains distinct from Sebastian's metadata-only ledger. See s6-privacy.md and session-runtime.md.

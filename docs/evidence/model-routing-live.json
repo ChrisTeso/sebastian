@@ -1,0 +1,40 @@
+{
+  "fixture_tests_passed": 165,
+  "native_quality_gate_pass": true,
+  "native_exact_route_matches": 11,
+  "native_case_count": 12,
+  "safe_fabrication_refusal": true,
+  "native_no_action_tools": true,
+  "luna_simple_median_s": 2.924083374964539,
+  "astra_simple_median_s": 3.7936437080497853,
+  "routing_overhead_median_s": 3.18262766697444,
+  "sample_limit": "Four matched simple cases per model; point live checks, not a p95 guarantee.",
+  "live": {
+    "slack_luna": {
+      "correct": true,
+      "bot_owned": true,
+      "confirmed": true,
+      "elapsed_s": 8.378069877624512
+    },
+    "messages_sol_image": {
+      "complete": true,
+      "owner_request": true,
+      "deliveries": 2,
+      "confirmed": true,
+      "model_label": true,
+      "image_sent": true
+    }
+  },
+  "sha256": {
+    "sebastian/model_router.py": "4e7978f207389f4a3651acd1959c40eb876313830c48139fb6f5f9ace1ca3152",
+    "sebastian/routed_runtime.py": "eff540150ecb0dabec80980c45c467a6c2f0f97a34ea0cbec9b026b2d60150b8",
+    "sebastian/session_runtime.py": "cbf3b72886ad0f3212c1859d92e4c8d0ccf9d7035be7c72e88460c896efc7963",
+    "sebastian/service.py": "dcd78183cc227dbc5ce4744d3bc27071982e1d70772eba7771ad239928a278a5",
+    "sebastian/outbound.py": "fda35da7ae75d48408ae738b5efd05cbee605cea295fac6abae68f1d6178c13d",
+    "sebastian/engine.py": "269502b927fdde93b41df029fdaeea7171c0c71ff4c37cc113b86b1db4f7f1d1",
+    "tests/test_model_router.py": "9f0356ea00edb6ce8bbf045d5a75f9272561d4d72cc4abc8ded16d339d3be604",
+    "tests/test_routed_runtime.py": "162bff5a956558f14aa413799ab1bd15c831f7e6d96fa69dd68e271df3d90eb8",
+    "tests/test_service.py": "7d63db6fcfdd3f25b33a6d4ca59001a8f3b75c194a2a5f4299ba048b7c9034ef",
+    "scripts/probe_model_routing.py": "8cad7e4dcee31ca788a0735ae333af8075de3cbaae90c41e7ffc2fff9b201d43"
+  }
+}
