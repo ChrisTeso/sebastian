@@ -45,9 +45,8 @@ class Sources:
         owner=row.get('user')==self.config.owner_user_id
         mentioned=bool(re.search(r'(?<![\w@])@sebastian\b',text,re.I)) or f'<@{self.config.bot_user_id}>' in text
         direct_owner=owner and row.get('channel_type') in ('im',None)
-        # Queue thread candidates without blocking Socket Mode on an API call.
-        # Rehydration verifies a preceding Sebastian post in the exact thread.
-        if not mentioned and not direct_owner and not row.get('thread_ts'):return
+        # Slack thread membership does not mean a message addresses Sebastian.
+        if not mentioned and not direct_owner:return
         occurred=slack_time(row['ts'])
         if occurred<=self.config.started_at:return
         meta=JobMetadata(Channel.SLACK,self.config.team_id,row['channel'],row.get('thread_ts'),row['ts'],occurred,datetime.now(timezone.utc))

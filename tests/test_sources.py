@@ -32,13 +32,13 @@ class SourceTests(unittest.TestCase):
         self.source.api=SimpleNamespace(client=client);self.source._slack_event=Mock(return_value=None)
         self.assertEqual(self.source.fetch(job),(None,[]))
         client.conversations_replies.assert_called_once();client.conversations_history.assert_not_called()
-    def test_nonowner_reply_candidate_queued_without_mention(self):
+    def test_nonowner_thread_post_without_mention_is_not_queued(self):
         ts=f'{datetime.now(timezone.utc).timestamp():.6f}'
         payload={'type':'event_callback','team_id':'TEAM','api_app_id':'APP','event':{
             'type':'message','channel_type':'channel','channel':'GROUP','user':'OTHER',
             'ts':ts,'thread_ts':'100.000001','text':'explain that'}}
         self.source.accept_slack(payload)
-        self.assertEqual(self.ledger.stats()['jobs'],{'queued':1})
+        self.assertEqual(self.ledger.stats()['jobs'],{})
         self.source.on_cancel.assert_not_called()
     def test_unverified_thread_cancel_does_not_interrupt(self):
         ts=f'{datetime.now(timezone.utc).timestamp():.6f}'

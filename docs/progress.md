@@ -2,7 +2,7 @@
 
 Authority: sebastian-clean-rebuild.md. Strict sequence S1 -> V1 -> S2 -> V2 -> S3 -> V3 -> S4 -> V4 -> S5 -> V5 -> S6 -> V6 -> S7 -> V7.
 
-This is a chronological evidence ledger: early pending statements are superseded by later results. Latest scoped status: reply triggers deployed with 174 passing tests and independent review; live inbound reply proof remains pending.
+This is a chronological evidence ledger: early pending statements are superseded by later results. Latest scoped status: Slack channels/threads require explicit mentions; native Messages reply triggers remain enabled. See the latest entry below.
 
 ## S1: PASS (V1)
 - Contract: disable exact old project consumers; archive all contents including ignored/untracked with verified content and symlinks; preserve Git history; clear source; create clean codex branch and minimal docs.
@@ -208,3 +208,9 @@ User scope: replies to Sebastian activate him like a mention in Slack and Messag
 Verification: `.venv/bin/python -m unittest discover -s tests` — 174 PASS. Independent fresh-context verifier `/root/reply_trigger_verify` PASS, including synthetic Messages poll → ledger → fetch and parent metadata invalidation. Evidence and artifact hashes: `docs/evidence/reply-trigger-review.md`. `.venv/bin/python scripts/probe_channels.py` — read-only identity/scopes and Messages account/schema checks PASS. Existing native service stopped/started using `scripts/service.py`; status confirms running, Slack connected, Messages readable, fresh heartbeat and no failure. No jobs were active before restart. No live messages sent, no commit/push or permission changes.
 
 Live inbound reply proof remains pending until observed. Plain SMS without native reply metadata still requires a mention. Native Messages originator references must identify a confirmed Sebastian post; merely having Sebastian elsewhere in a Chris-originated native thread does not qualify. Slack follows thread-level semantics because replies share a single root.
+
+## Slack mention correction (2026-09-14)
+
+Observed the latest Slack thread: after one mentioned response, unrelated laughter and a request addressed to another participant triggered Sebastian. Removed prior-bot-participation as a Slack trigger at both queue ingress and worker rehydration. Slack channels/threads now require explicit textual or native mentions; owner DMs remain automatic. Already-queued unmentioned thread posts fail rehydration and are discarded. Native Messages reply detection is unchanged. Full 174-test suite PASS. Scoped fresh review and deployment status follow. No third-party test messages sent.
+
+Fresh verifier `/root/slack_mention_review` PASS: focused Slack/Sources/Messages tests and synthetic Sources.fetch rehydration rejected queued unmentioned posts for both owner and nonowner. Final full suite: 175 PASS, including exact reported laughter/other-recipient regression. Service restarted successfully: running, Slack connected, Messages readable, fresh heartbeat, no failure. Live inbound proof awaits ordinary use; no group test sends.
