@@ -6,7 +6,7 @@ The current implementation is on [`main`](https://github.com/ChrisTeso/sebastian
 
 ## What it does
 
-- Responds to mentions and follow-up replies in Slack and Messages.
+- Responds to Slack mentions and to mentions or native replies in Apple Messages.
 - Keeps replies in the originating chat or Slack thread under the configured audience policy.
 - Reads relevant conversation context and supported image attachments.
 - Generates and delivers images through Slack and Messages.
@@ -17,7 +17,7 @@ The current implementation is on [`main`](https://github.com/ChrisTeso/sebastian
 
 | Channel | What activates Sebastian |
 |---|---|
-| Slack | A direct message from Chris, an `@Sebastian` mention, or a reply in a thread where Sebastian has already posted. |
+| Slack | A direct message from Chris or an explicit `@Sebastian` mention. Ordinary channel/thread posts do not trigger replies. |
 | Apple Messages | An `@sebastian` mention, a native reply to a confirmed Sebastian message, or a message in Chris's configured private self-chat. |
 
 Messages replies come from Chris's existing account. Sebastian does not have a separate phone number or Apple Account. Plain SMS without native reply metadata still requires a mention outside the configured self-chat. Slack group DMs are unavailable with the current installation's scopes.

@@ -205,11 +205,10 @@ class SlackAdapter:
         thread = row.get('thread_ts')
         if thread:
             slack_time(thread)
-        if not (direct and row['user'] == self.config.owner_user_id) and not mentioned and not thread:
+        if not (direct and row['user'] == self.config.owner_user_id) and not mentioned:
             return None
         base = self._message(row, channel, thread)
         history = {}
-        replies_to_bot = False
         for prior in self.api.history(channel, thread, ts):
             # Thread roots omit thread_ts. A root is context for its own thread.
             prior_thread = prior.get('thread_ts')
@@ -220,10 +219,6 @@ class SlackAdapter:
             item = self._message(prior, channel, thread)
             if item.occurred_at < occurred:
                 history[item.event_id] = item
-                if thread and prior.get('user') == self.config.bot_user_id and prior.get('bot_id') == self.config.bot_id:
-                    replies_to_bot = True
-        if not (direct and row['user'] == self.config.owner_user_id) and not mentioned and not replies_to_bot:
-            return None
         context = tuple(sorted(history.values(), key=lambda h: (h.occurred_at, h.event_id))[-10:])
         event = Event(base.channel, base.account_id, base.sender_id, base.conversation_id, base.thread_id,
                       base.event_id, base.occurred_at, base.text, base.attachments,

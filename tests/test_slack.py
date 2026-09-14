@@ -68,15 +68,22 @@ class SlackTests(unittest.TestCase):
         e = self.event(type='app_mention', text='<@BOT> help', thread_ts='99.000001')
         self.assertEqual(e.thread_id, '99.000001')
         self.assertTrue(e.is_group)
-    def test_reply_in_sebastian_thread_without_mention(self):
+    def test_reply_in_sebastian_thread_without_mention_is_ignored(self):
         self.group()
         self.client.rows = [dict(user='BOT', bot_id='B1', subtype='bot_message', ts='90.000001', text='reply')]
         e = self.event(user='OTHER', text='explain that', thread_ts='90.000001')
-        self.assertEqual((e.sender_id, e.thread_id), ('OTHER', '90.000001'))
+        self.assertIsNone(e)
     def test_reply_after_sebastian_in_existing_thread(self):
         self.group()
         self.client.rows = [dict(user='BOT', bot_id='B1', ts='99.000001', thread_ts='90.000001', text='reply')]
-        self.assertIsNotNone(self.event(user='OTHER', thread_ts='90.000001'))
+        self.assertIsNone(self.event(user='OTHER', thread_ts='90.000001'))
+    def test_ordinary_thread_posts_ignore_bot_participation_for_any_sender(self):
+        self.group()
+        self.client.rows = [dict(user='BOT', bot_id='B1', ts='99.000001', thread_ts='90.000001', text='reply')]
+        for sender in ('OWNER', 'OTHER'):
+            for text in ('rofl', '@LeRoy help', 'another thought'):
+                self.assertIsNone(self.event(user=sender, text=text, thread_ts='90.000001'))
+        self.assertIsNotNone(self.event(user='OTHER', text='<@BOT> help', thread_ts='90.000001'))
     def test_reply_requires_prior_exact_bot_and_thread(self):
         self.group()
         for changes in (dict(user='OTHER'), dict(bot_id='FOREIGN'), dict(thread_ts='80.000001'), dict(ts='102.000001')):
